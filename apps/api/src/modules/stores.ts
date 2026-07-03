@@ -1,0 +1,72 @@
+import { Body, Controller, Get, Module, Param, Patch, Post } from '@nestjs/common';
+import {
+  createStoreSchema,
+  type CreateStoreInput,
+  type TenantContext,
+} from '@openrate/shared';
+import { PgService } from '../common/pg.service';
+import { CurrentTenant } from '../common/tenant';
+import { ZodValidationPipe } from '../common/zod.pipe';
+import { Roles } from '../auth/roles.decorator';
+
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+@Controller('stores')
+class StoresController {
+  constructor(private readonly pg: PgService) {}
+
+  // RLS já filtra por org; managers veem a própria loja, owner vê todas da org.
+  @Get()
+  list(@CurrentTenant() t: TenantContext) {
+    return this.pg.withTenant(t, (c) =>
+      c.query('SELECT id, name, slug, document, active FROM openrate.stores ORDER BY name').then((r) => r.rows),
+    );
+  }
+
+  @Get(':id')
+  get(@CurrentTenant() t: TenantContext, @Param('id') id: string) {
+    return this.pg.withTenant(t, (c) =>
+      c.query('SELECT * FROM openrate.stores WHERE id = $1', [id]).then((r) => r.rows[0] ?? null),
+    );
+  }
+
+  @Post()
+  @Roles('owner')
+  create(
+    @CurrentTenant() t: TenantContext,
+    @Body(new ZodValidationPipe(createStoreSchema)) dto: CreateStoreInput,
+  ) {
+    return this.pg.withTenant(t, (c) =>
+      c
+        .query(
+          'INSERT INTO openrate.stores (organization_id, name, slug, document) VALUES ($1,$2,$3,$4) RETURNING *',
+          [t.orgId, dto.name, slugify(dto.name), dto.document ?? null],
+        )
+        .then((r) => r.rows[0]),
+    );
+  }
+
+  @Patch(':id')
+  @Roles('owner')
+  update(@CurrentTenant() t: TenantContext, @Param('id') id: string, @Body() body: { name?: string; active?: boolean }) {
+    return this.pg.withTenant(t, (c) =>
+      c
+        .query('UPDATE openrate.stores SET name = COALESCE($2,name), active = COALESCE($3,active) WHERE id = $1 RETURNING *', [
+          id,
+          body.name ?? null,
+          body.active ?? null,
+        ])
+        .then((r) => r.rows[0] ?? null),
+    );
+  }
+}
+
+@Module({ controllers: [StoresController] })
+export class StoresModule {}
