@@ -10,7 +10,7 @@ A stack `openrate` adiciona **5 serviços novos** ao Swarm e **reusa 8 serviços
 
 Pontos estruturais:
 
-- **Produto 100% web.** Não há app nativo nem publicação em lojas (App Store/Play): o atendente usa o **PWA** (mesma aplicação Next.js do painel, `openrate_web`), aberto no navegador do celular e instalável via "Adicionar à tela inicial". Câmera e gravação usam `getUserMedia`/`MediaRecorder`; fila offline e notificações via service worker + Web Push. Um app nativo só será avaliado depois, se necessário.
+- **Produto 100% web.** O atendente usa o **PWA** (mesma aplicação Next.js do painel, `openrate_web`), aberto no navegador do celular e instalável via "Adicionar à tela inicial" — sem publicação em loja de aplicativos. Câmera e gravação usam `getUserMedia`/`MediaRecorder`; fila offline e notificações via service worker + Web Push.
 - **Upload de vídeo nunca passa pela API.** O navegador (PWA do atendente) pede URLs presigned multipart à `openrate_api` e envia as partes direto para o MinIO via `https://bucketss3.talkhub.me` (roteado pelo Traefik). A API só orquestra metadados e enfileira o processamento.
 - **Todo trabalho pesado é assíncrono** via BullMQ no `openrate_redis` (dedicado, `noeviction` — o `redis_redis` compartilhado do servidor não serve para BullMQ por não garantir `noeviction`).
 - **Multi-tenancy em duas camadas**: autorização na API (claims do JWT) + RLS no Postgres como defesa em profundidade, funcionando mesmo em conexão direta (seção 7).
@@ -90,7 +90,7 @@ graph TB
     class CLAUDE,ASAAS,PLATAFORMAS externo;
 ```
 
-**Legenda**: verde sólido = serviço novo (stack `openrate`); azul tracejado = serviço já em produção, reusado; amarelo pontilhado = API externa (fora do Swarm). Não há app nativo: tanto o atendente (PWA) quanto o painel são servidos pelo `openrate_web` — um único front Next.js com rotas por role.
+**Legenda**: verde sólido = serviço novo (stack `openrate`); azul tracejado = serviço já em produção, reusado; amarelo pontilhado = API externa (fora do Swarm). Produto 100% web: tanto o atendente (PWA) quanto o painel são servidos pelo `openrate_web` — um único front Next.js com rotas por role.
 
 ### 1.2 Hosts públicos (routers Traefik)
 
@@ -386,7 +386,7 @@ openrate.talkhub.me/
 └── docs/               # 01-produto, 02-arquitetura (este), ...
 ```
 
-**Por que monorepo único**: time pequeno; o contrato entre API, worker e web é o mesmo conjunto de tipos/schemas zod (`packages/shared`) — uma mudança de payload de job ou de rota é um único PR atômico que atualiza produtor, consumidor e cliente juntos, sem versionamento de pacotes internos nem drift de contrato. CI única constrói as 4 imagens `talkhub/*:latest` (api, worker, web, bullboard) a partir do mesmo commit; o custo clássico de monorepo (build lento, ownership dividido) não existe nessa escala. Como o produto é 100% web, atendente e painel são o **mesmo** `apps/web` (Next.js) — sem `apps/mobile`, sem toolchain nativa, sem pipeline de EAS/lojas. Se um app nativo for necessário no futuro, entra como `apps/mobile` reaproveitando `packages/shared`.
+**Por que monorepo único**: time pequeno; o contrato entre API, worker e web é o mesmo conjunto de tipos/schemas zod (`packages/shared`) — uma mudança de payload de job ou de rota é um único PR atômico que atualiza produtor, consumidor e cliente juntos, sem versionamento de pacotes internos nem drift de contrato. CI única constrói as 4 imagens `talkhub/*:latest` (api, worker, web, bullboard) a partir do mesmo commit; o custo clássico de monorepo (build lento, ownership dividido) não existe nessa escala. Como o produto é 100% web, atendente e painel são o **mesmo** `apps/web` (Next.js) — uma base só de front, sem toolchain ou pipeline de build à parte.
 
 ---
 

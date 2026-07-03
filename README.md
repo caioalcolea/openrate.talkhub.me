@@ -4,7 +4,7 @@ Plataforma SaaS multi-tenant que transforma atendentes de lojas físicas em crea
 
 > Domínio de produção: **openrate.talkhub.me** · Codinome anterior: "Loja Creator".
 
-**Produto 100% web.** O atendente usa um **PWA** (a mesma aplicação Next.js do painel, aberta no navegador do celular e instalável) — sem app nativo e sem publicação em App Store/Play. Câmera e gravação via `getUserMedia`/`MediaRecorder`; upload resumível direto ao MinIO; fila offline e notificações via service worker. Um app nativo só entra depois, se um limite real de navegador justificar.
+**Produto 100% web.** O atendente usa um **PWA** (a mesma aplicação Next.js do painel, aberta no navegador do celular e instalável via "Adicionar à tela inicial") — sem publicação em loja de aplicativos. Câmera e gravação via `getUserMedia`/`MediaRecorder`; upload resumível direto ao MinIO; fila offline e notificações via service worker.
 
 ---
 
@@ -19,6 +19,7 @@ Neste momento o repositório contém a **especificação, a análise crítica, a
 | [`docs/02-arquitetura.md`](docs/02-arquitetura.md) | Arquitetura de microserviços: diagramas, catálogo dos serviços novos, contratos de uso dos serviços reaproveitados, fluxos críticos, rotas da API, monorepo e convenções transversais. |
 | [`docs/03-banco-de-dados.md`](docs/03-banco-de-dados.md) | Modelagem do schema `openrate`: diagramas ER por domínio, motor de comissão, RLS de duas vias e regras de convivência no Postgres compartilhado. |
 | [`docs/04-sprints.md`](docs/04-sprints.md) | Plano de desenvolvimento em sprints (Fundação → MVP → Dinheiro → Escala), com DoD, capacidade e riscos. |
+| [`docs/05-deploy-e-validacao.md`](docs/05-deploy-e-validacao.md) | Como colocar na VPS, a partir do Git, o que existe hoje para validar (migration, bucket) e o que falta (Sprint 0) para a stack subir por completo. |
 | [`db/migrations/0001_init.sql`](db/migrations/0001_init.sql) | Migration inicial: schema `openrate` (27 tabelas, 13 enums, 64 policies de RLS com FORCE, view de metas). Validada de ponta a ponta em Postgres 16. |
 | [`deploy/openrate.yaml`](deploy/openrate.yaml) | Stack Docker Swarm no padrão "Orion" do servidor, pronta para colar no Portainer. |
 | [`deploy/.env.example`](deploy/.env.example) | Variáveis de ambiente da stack (placeholders — nunca valores reais). |
@@ -44,4 +45,9 @@ Uma stack Swarm nova (`openrate`) com **5 serviços** — `openrate_api` (NestJS
 
 ## Deploy
 
-Ver [`deploy/runbook.md`](deploy/runbook.md). Resumo: criar DNS dos 3 hosts (`openrate`, `openrate-api`, `openrate-queues`), criar o volume `openrate_redis_data`, provisionar role/schema no `supabase_db` e aplicar a migration, criar o bucket `openrate-media` no MinIO, buildar as imagens `talkhub/openrate-*` e subir a stack pelo Portainer.
+Fluxo a partir do Git, na VPS: ver [`docs/05-deploy-e-validacao.md`](docs/05-deploy-e-validacao.md) (o que dá para validar hoje × o que depende da Sprint 0) e [`deploy/runbook.md`](deploy/runbook.md) (procedimento detalhado).
+
+Em duas etapas, porque ainda não há código de aplicação:
+
+- **Etapa A (agora):** clonar o repo na VPS, criar DNS dos 3 hosts, criar o volume `openrate_redis_data`, provisionar role/schema no `supabase_db` e aplicar a migration (valida o banco em produção), criar o bucket `openrate-media` no MinIO. Nada da produção existente é alterado.
+- **Etapa B (após Sprint 0):** buildar as imagens `talkhub/openrate-*` a partir dos esqueletos das apps e subir a stack `deploy/openrate.yaml` pelo **Portainer** (já configurado na VPS).

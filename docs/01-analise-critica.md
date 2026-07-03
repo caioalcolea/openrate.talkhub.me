@@ -156,19 +156,19 @@
 - **Painel web ausente da tabela de infra**: a spec descreve o painel Next.js na stack mas não o lista como serviço em 2.2 — a stack fechada tem `openrate_web` (porta 3000, host `openrate.talkhub.me`) e a API em `openrate-api.talkhub.me`. Refletir na spec.
 - **Métricas de negócio vs. views**: deixar explícito no modelo que comissão deriva de `affiliate_sales` (venda confirmada), nunca de métricas de engajamento — evita acoplamento do financeiro ao scraping frágil.
 
-### 2.13 App do atendente 100% web (PWA) — sem React Native/Expo
+### 2.13 App do atendente 100% web (PWA)
 
-**Decisão (correção da spec 2.1).** A spec listava o app do atendente como **React Native + Expo**. A decisão fechada é **produto 100% web**: o atendente usa um **PWA** — a mesma aplicação Next.js do painel (`openrate_web`), com rotas por role — aberto no navegador do celular. Sem app nativo, sem toolchain de build nativa, sem publicação em App Store/Play. Um app nativo só será avaliado depois, se um limite real de navegador justificar.
+**Decisão (correção da spec 2.1).** A spec previa um app instalado por loja de aplicativos; a decisão fechada é **produto 100% web**: o atendente usa um **PWA** — a mesma aplicação Next.js do painel (`openrate_web`), com rotas por role — aberto no navegador do celular. Sem toolchain de build à parte e sem publicação em loja de aplicativos.
 
 **Por que isso é vantajoso aqui:**
-1. **Menos superfície e menos custo**: um único front (Next.js) atende painel e atendente; o `packages/shared` de tipos/zod já é compartilhado. Zero pipeline de EAS, zero contas de developer Apple/Google, zero espera de revisão de loja para publicar correção.
-2. **Deploy uniforme**: o PWA sai no mesmo `openrate_web` do Swarm, atrás do mesmo Traefik/TLS — nada de artefato fora da infra do servidor. Atualização é um redeploy da imagem, chega a todos na hora (sem OTA nem aprovação).
-3. **Onboarding instantâneo**: atendente abre `https://openrate.talkhub.me` e "adiciona à tela inicial"; não precisa instalar APK nem receber convite de TestFlight.
+1. **Menos superfície e menos custo**: um único front (Next.js) atende painel e atendente; o `packages/shared` de tipos/zod já é compartilhado. Zero pipeline de build à parte, zero contas de developer, zero espera de revisão de loja para publicar correção.
+2. **Deploy uniforme**: o PWA sai no mesmo `openrate_web` do Swarm, atrás do mesmo Traefik/TLS — nada de artefato fora da infra do servidor. Atualização é um redeploy da imagem, chega a todos na hora.
+3. **Onboarding instantâneo**: atendente abre `https://openrate.talkhub.me` e "adiciona à tela inicial" — nada a instalar.
 4. **Capacidades cobertas pelo navegador**: câmera e gravação via `getUserMedia`/`MediaRecorder`; upload resumível via multipart do MinIO (parte a parte); instalação, ícone e splash via Web App Manifest; fila offline e notificações via service worker + Web Push.
 
 **Riscos assumidos e mitigação:**
 - **Diferença entre navegadores**: `MediaRecorder` grava WebM/VP9 no Chrome Android e MP4/H.264 no Safari iOS — negociar o mime-type suportado em runtime e **normalizar tudo para MP4/H.264 no worker** (o pipeline FFmpeg já roda de todo modo). Testar cedo em iOS **e** Android reais.
-- **Limites do iOS em PWA** (gravação em background, cota de storage): aceitáveis para o fluxo "gravar → enviar" em primeiro plano; se um limite bloquear o caso de uso, o app nativo entra como item **contingente** do backlog (não default).
+- **Limites do iOS em PWA** (gravação em background, cota de storage): o fluxo é desenhado para "gravar em primeiro plano → enviar", que cabe nesses limites; casos específicos são tratados pontualmente no próprio PWA.
 - **Storage local do vídeo bruto**: usar IndexedDB para a fila de pendentes, com limpeza após upload confirmado.
 
 ---
@@ -189,7 +189,7 @@
 | **Traefik v3.4** | entrypoint `websecure` | Routers novos: `openrate.talkhub.me` (web), `openrate-api.talkhub.me` (API), `openrate-queues.talkhub.me` (Bull Board + middleware basicauth). Certresolver `letsencryptresolver`. Labels em `deploy.labels`, padrão Orion. |
 | **Portainer** | UI existente | Deploy da stack `openrate` (padrão do servidor), inspeção de logs e restart de serviços. |
 
-Serviços novos (únicos que a stack adiciona): `openrate_redis`, `openrate_api`, `openrate_worker`, `openrate_web`, `openrate_bullboard`. Não há app nativo: atendente (PWA) e painel são o mesmo `openrate_web` (ver 2.13).
+Serviços novos (únicos que a stack adiciona): `openrate_redis`, `openrate_api`, `openrate_worker`, `openrate_web`, `openrate_bullboard`. Produto 100% web: atendente (PWA) e painel são o mesmo `openrate_web` (ver 2.13).
 
 ---
 

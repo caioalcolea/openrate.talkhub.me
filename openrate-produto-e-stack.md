@@ -46,7 +46,7 @@ Avaliamos o projeto open-source MoneyPrinterV2 como possível base de código. E
 
 | Camada | Tecnologia | Justificativa |
 |---|---|---|
-| App do atendente | PWA (Next.js, mesmo app do painel) | 100% web: sem app nativo/stores. Câmera via `getUserMedia`/`MediaRecorder`, upload resumível via presigned; instalável ("Adicionar à tela inicial") e com fila offline via service worker |
+| App do atendente | PWA (Next.js, mesmo app do painel) | 100% web, sem loja de aplicativos. Câmera via `getUserMedia`/`MediaRecorder`, upload resumível via presigned; instalável ("Adicionar à tela inicial") e com fila offline via service worker |
 | Painel admin/dono | Next.js + Tailwind + shadcn/ui | Dashboard web responsivo; mesma base do PWA do atendente, com rotas por role |
 | API principal | Node.js (NestJS ou Express) | Alinhado ao ecossistema Talkhub, integra fácil com BullMQ |
 | Banco de dados | PostgreSQL (via Supabase self-hosted) | Multi-tenant com RLS nativo, já provisionado na infra Talkhub |
