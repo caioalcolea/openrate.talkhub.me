@@ -2,18 +2,34 @@
 
 > Como colocar na VPS **o que existe hoje no repositório** para validar, e o que falta para o stack subir por completo. Complementa [`../deploy/runbook.md`](../deploy/runbook.md) (procedimento detalhado) e [`04-sprints.md`](04-sprints.md) (Sprint 0).
 
-## O que dá para validar agora × o que depende de código
+## O que já existe
 
-Este repositório contém **especificação, arquitetura, a migration do banco e a definição da stack** — ainda **não há código de aplicação** (`apps/api`, `apps/web`, `apps/worker`, `apps/bullboard`) nem `Dockerfile`s. Consequência direta:
+O repositório contém a **especificação, a arquitetura, a migration do banco, a definição da stack** e agora também o **código das 4 aplicações** (Sprints 0-3):
+
+- `apps/api` (NestJS), `apps/worker` (BullMQ + FFmpeg + faster-whisper), `apps/web` (Next.js — painel + PWA do atendente), `apps/bullboard`, mais `packages/shared` (contratos) e os `Dockerfile`s de cada app.
+- Verificado nesta base: `pnpm build` (5/5 pacotes), `pnpm test` verdes, migration aplica como `openrate_owner` não-superuser (27 tabelas/64 policies) e **smoke test E2E da API** (JWT forjado → `/v1/products` retorna dado via RLS; 401 sem token).
 
 | Camada | Estado | Dá para validar hoje? |
 |---|---|---|
-| Migration do schema `openrate` (`db/migrations/0001_init.sql`) | Pronta e testada | **Sim** — aplica no `supabase_db` real e valida RLS/estrutura |
-| Bucket `openrate-media` no MinIO (+ lifecycle, usuário) | Definido no runbook | **Sim** — cria e confere |
+| Migration do schema `openrate` (`db/migrations/0001_init.sql`) | Pronta e testada | **Sim** — aplica no `supabase_db` real |
+| Bucket `openrate-media` no MinIO (+ lifecycle, usuário) | Definido no runbook | **Sim** |
 | DNS + volume + rede | Definidos | **Sim** |
-| Stack `openrate` (5 serviços) | YAML pronto | **Não ainda** — as imagens `talkhub/openrate-*:latest` só existem depois da **Sprint 0** (esqueletos das apps) |
+| Apps `apps/*` + imagens `talkhub/openrate-*` | Código pronto (Sprints 0-3) | **Sim** — buildar as imagens e subir a stack |
 
-Ou seja: o "deploy completo" tem duas etapas. **Etapa A (agora)** provisiona e valida a infra do OpenRate sem subir containers de app. **Etapa B (após Sprint 0)** builda as imagens e sobe a stack pelo Portainer — o `deploy/runbook.md` cobre B ponta a ponta.
+O deploy tem duas etapas: **Etapa A** provisiona/valida a infra (banco, bucket, volume, DNS); **Etapa B** builda as imagens e sobe a stack pelo Portainer.
+
+### Rodar localmente (opcional, antes do servidor)
+
+```bash
+pnpm install
+docker compose -f docker-compose.dev.yml up -d          # Postgres + Redis + MinIO
+# aplicar a migration no Postgres de dev:
+docker compose -f docker-compose.dev.yml exec -T db \
+  sh -c 'psql -U openrate_owner -d openrate -v ON_ERROR_STOP=1 --single-transaction' \
+  < <(sed "/^-- migrate:down/,\$d" db/migrations/0001_init.sql)
+cp .env.dev.example .env.dev
+pnpm dev                                                 # api, worker, web, bullboard
+```
 
 ---
 
@@ -114,11 +130,9 @@ Seguir `deploy/runbook.md` **passo 4** (cria bucket `openrate-media`, lifecycle 
 
 ---
 
-## Etapa B — Subir a stack (após a Sprint 0)
+## Etapa B — Buildar as imagens e subir a stack
 
-A stack `deploy/openrate.yaml` referencia `talkhub/openrate-api:latest`, `-worker`, `-web`, `-bullboard`. Essas imagens **precisam existir** — são o entregável da **Sprint 0** (esqueletos NestJS/Next(PWA)/worker/Bull Board com `/health`, ver `04-sprints.md`). Enquanto elas não forem buildadas, o deploy da stack falha em `pull image`.
-
-Depois que a Sprint 0 existir no repositório, a sequência é:
+A stack `deploy/openrate.yaml` referencia `talkhub/openrate-api:latest`, `-worker`, `-web`, `-bullboard`. O código dessas imagens já existe (`apps/*` + `Dockerfile`s). A sequência de build no servidor é:
 
 ```bash
 cd /opt/apps/openrate.talkhub.me
@@ -152,6 +166,6 @@ docker service logs -f openrate_openrate_api
 
 ## Ordem recomendada
 
-1. **Etapa A** agora → valida banco + storage no ambiente real, sem risco para a produção.
-2. **Sprint 0** (gerar os esqueletos `apps/*` + Dockerfiles) → produz as imagens.
-3. **Etapa B** → stack no ar, `/health` verde, base para as sprints seguintes.
+1. **Etapa A** → valida banco + storage no ambiente real, sem risco para a produção.
+2. **Etapa B** → build das imagens (`apps/*` já existem) e stack no ar via Portainer, `/health` verde.
+3. Antes do go-live, revisar os pendentes de segurança/negócio: adicionar Web Push (VAPID) só como canal secundário, provisionar a instância Evolution `openrate`, conferir os nomes de entrypoint/certresolver do Traefik do servidor, e travar as decisões de comissão/payout (Sprints 4-5).
