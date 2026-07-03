@@ -169,7 +169,8 @@
 **Riscos assumidos e mitigação:**
 - **Diferença entre navegadores**: `MediaRecorder` grava WebM/VP9 no Chrome Android e MP4/H.264 no Safari iOS — negociar o mime-type suportado em runtime e **normalizar tudo para MP4/H.264 no worker** (o pipeline FFmpeg já roda de todo modo). Testar cedo em iOS **e** Android reais.
 - **Limites do iOS em PWA** (gravação em background, cota de storage): o fluxo é desenhado para "gravar em primeiro plano → enviar", que cabe nesses limites; casos específicos são tratados pontualmente no próprio PWA.
-- **Storage local do vídeo bruto**: usar IndexedDB para a fila de pendentes, com limpeza após upload confirmado.
+- **Storage local do vídeo bruto**: usar IndexedDB para a fila de pendentes, com limpeza após upload confirmado. A retomada é em **primeiro plano** (reabrir o PWA) — o *background sync* real (`SyncManager`) é só Chromium; no iOS não roda em background, então a fila persiste em IndexedDB e é drenada quando o app volta ao foco.
+- **Notificações**: o canal **garantido** no MVP é o **WhatsApp via Evolution**. Web Push é item de hardening (fase Escala) e, no iOS, exige PWA instalado (iOS 16.4+) com entrega não garantida — nunca o único canal de um evento crítico (comissão paga, vídeo aprovado).
 
 ---
 

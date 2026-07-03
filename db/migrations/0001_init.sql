@@ -29,13 +29,24 @@
 -- migrate:up
 
 -- ----------------------------------------------------------------------------
--- 0. Guarda de pré-requisito: a role openrate_app precisa existir
+-- 0. Guarda de pré-requisito: a role openrate_app precisa existir E ser segura.
+--    O isolamento multi-tenant depende de a role de RUNTIME não conseguir
+--    ignorar RLS. Se ela for SUPERUSER ou tiver BYPASSRLS, todo o FORCE RLS
+--    desta migration é silenciosamente anulado — por isso a migration RECUSA
+--    um provisionamento inseguro em vez de aplicar um schema falsamente isolado.
 -- ----------------------------------------------------------------------------
 DO $$
+DECLARE
+  r pg_roles%ROWTYPE;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'openrate_app') THEN
+  SELECT * INTO r FROM pg_roles WHERE rolname = 'openrate_app';
+  IF NOT FOUND THEN
     RAISE EXCEPTION
       'Role "openrate_app" nao existe. Execute o runbook de provisionamento antes desta migration.';
+  END IF;
+  IF r.rolsuper OR r.rolbypassrls THEN
+    RAISE EXCEPTION
+      'Role "openrate_app" tem SUPERUSER/BYPASSRLS — isso anula o RLS. Recrie-a como NOSUPERUSER NOBYPASSRLS (ver runbook passo 3.2).';
   END IF;
 END $$;
 
@@ -1183,6 +1194,39 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA openrate
   GRANT USAGE, SELECT ON SEQUENCES TO openrate_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA openrate
   GRANT EXECUTE ON FUNCTIONS TO openrate_app;
+
+-- ----------------------------------------------------------------------------
+-- 11. Asserção de cobertura de RLS (invariante verificada, não convenção)
+--     Falha a migration se QUALQUER tabela base do schema openrate ficar sem
+--     ENABLE + FORCE ROW LEVEL SECURITY ou sem ao menos uma policy. Transforma
+--     "toda tabela tenant tem RLS" de convenção implícita em garantia checada —
+--     uma tabela futura sem organization_id (que hoje escaparia do bloco
+--     dinâmico) quebra o deploy em vez de virar um furo silencioso de tenancy.
+--     Allowlist: tabelas intencionalmente sem RLS entram em except_tables.
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+  except_tables text[] := ARRAY[]::text[];  -- nenhuma exceção hoje
+  bad text;
+BEGIN
+  SELECT string_agg(c.relname, ', ') INTO bad
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'openrate'
+    AND c.relkind = 'r'
+    AND c.relname <> ALL (except_tables)
+    AND (
+      c.relrowsecurity = false
+      OR c.relforcerowsecurity = false
+      OR NOT EXISTS (
+        SELECT 1 FROM pg_policies p
+        WHERE p.schemaname = 'openrate' AND p.tablename = c.relname
+      )
+    );
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'Tabelas sem RLS+FORCE+policy no schema openrate: %', bad;
+  END IF;
+END $$;
 
 -- ============================================================================
 -- Fim da migration 0001_init

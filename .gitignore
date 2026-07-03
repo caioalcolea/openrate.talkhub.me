@@ -1,0 +1,31 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# build outputs
+dist/
+.next/
+out/
+*.tsbuildinfo
+.turbo/
+
+# env / secrets
+.env
+.env.*
+!.env.dev.example
+!deploy/.env.example
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# runtime / temp
+tmp/
+coverage/
+.DS_Store
+
+# media de teste (nunca versionar vídeo)
+*.mp4
+*.mov
+*.webm

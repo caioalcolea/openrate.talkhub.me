@@ -180,7 +180,7 @@ Regra geral: o OpenRate é **inquilino** desses serviços. Qualquer alteração 
 ### 3.1 `supabase_db` (Postgres 15.8)
 
 - **DNS/porta**: `supabase_db:5432` (conexão direta; `supabase_supavisor` fica como opção futura se houver pressão de conexões).
-- **Credencial**: role dedicada `openrate_app` — `NOSUPERUSER`, `LOGIN`, dona apenas do schema `openrate`, sem `USAGE` em outros schemas (revogar `public`). DSN: `postgresql://openrate_app:***@supabase_db:5432/postgres?search_path=openrate`.
+- **Credencial**: duas roles — `openrate_owner` (migração, **dona** do schema `openrate`) e `openrate_app` (runtime, **não-dona**, `NOSUPERUSER NOBYPASSRLS`, sem `USAGE` em outros schemas). A app conecta como `openrate_app`; o `search_path` já vem fixado no nível da role (`ALTER ROLE ... SET search_path = openrate`), então a DSN não precisa do parâmetro: `postgresql://openrate_app:***@supabase_db:5432/postgres`. A separação owner/app é o que faz `FORCE ROW LEVEL SECURITY` valer para a role de runtime (dono ignora RLS a menos que forçado; a app, por não ser dona, não pode nem desabilitar o RLS via `ALTER TABLE`).
 - **Uso**: schema `openrate` com migrations versionadas via **dbmate** (SQL puro — necessário para declarar policies RLS, triggers e views sem abstração de ORM). Tabelas conforme modelagem da spec (multi-tenancy, catálogo, conteúdo, financeiro, engajamento, CRM físico, operação).
 - **Cuidados**: (1) pool de conexões limitado — API máx. 10, worker máx. 5 — para não esgotar `max_connections` compartilhado com gotrue/postgrest/storage; (2) nenhum objeto criado fora do schema `openrate`; (3) não instalar extensões novas sem alinhamento (usar `pgcrypto` já disponível na imagem Supabase para criptografar `integrations.credentials`); (4) migrations nunca tocam os schemas `auth`, `storage`, `public` do Supabase.
 
@@ -379,11 +379,13 @@ openrate.talkhub.me/
 │   └── migrations/     # dbmate — SQL puro: schema openrate, RLS, triggers, seeds
 ├── deploy/
 │   ├── openrate.yaml   # Stack Swarm padrão Orion (deploy via Portainer)
-│   ├── api.Dockerfile
-│   ├── worker.Dockerfile   # Node + FFmpeg + faster-whisper (modelo small embutido)
-│   ├── web.Dockerfile
-│   └── bullboard.Dockerfile
+│   ├── .env.example
+│   └── runbook.md
 └── docs/               # 01-produto, 02-arquitetura (este), ...
+
+Cada app tem seu próprio `Dockerfile` na raiz da app (`apps/api/Dockerfile`,
+`apps/worker/Dockerfile`, `apps/web/Dockerfile`, `apps/bullboard/Dockerfile`) —
+o build roda do contexto do monorepo para compartilhar `packages/shared`.
 ```
 
 **Por que monorepo único**: time pequeno; o contrato entre API, worker e web é o mesmo conjunto de tipos/schemas zod (`packages/shared`) — uma mudança de payload de job ou de rota é um único PR atômico que atualiza produtor, consumidor e cliente juntos, sem versionamento de pacotes internos nem drift de contrato. CI única constrói as 4 imagens `talkhub/*:latest` (api, worker, web, bullboard) a partir do mesmo commit; o custo clássico de monorepo (build lento, ownership dividido) não existe nessa escala. Como o produto é 100% web, atendente e painel são o **mesmo** `apps/web` (Next.js) — uma base só de front, sem toolchain ou pipeline de build à parte.
