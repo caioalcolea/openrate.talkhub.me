@@ -151,26 +151,23 @@ do `.env`, exceto as da seção "provisionamento") → **Deploy the stack**.
 
 ## 5. Pós-deploy (primeiro acesso)
 
-O banco sobe **vazio**. Para criar o primeiro acesso:
+O banco sobe **vazio**. A API usa **auth própria** (o gotrue compartilhado tem
+login por e-mail desabilitado): ela guarda o hash da senha em `openrate.users` e
+emite o próprio JWT HS256, assinado com `SUPABASE_JWT_SECRET`.
 
-1. **Primeiro usuário `super_admin`** — crie no gotrue (Admin API) com
-   `app_metadata.product="openrate"` e `role="super_admin"`:
+1. **Primeiro `super_admin`** — via endpoint público de primeiro acesso
+   `POST /v1/auth/bootstrap` (auto-desabilita depois do 1º; chamadas seguintes → 409):
    ```bash
-   curl -s -X POST "$SUPABASE_URL/auth/v1/admin/users" \
-     -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+   curl -s -X POST https://openrate-api.talkhub.me/v1/auth/bootstrap \
      -H "Content-Type: application/json" \
-     -d '{"email":"admin@talkhub.me","password":"UMA_SENHA","email_confirm":true,
-          "app_metadata":{"product":"openrate","role":"super_admin"}}'
+     -d '{"email":"admin@talkhub.me","password":"UMA_SENHA_FORTE","fullName":"Admin OpenRate"}'
    ```
-   Depois **faça login** em `https://openrate.talkhub.me` e crie a organização —
-   a API espelha o `super_admin` em `openrate.users` nesse fluxo (a policy
-   `super_admin_all` autoriza pelo claim do JWT). Um insert manual via psql só
-   funcionaria como `openrate_owner` com `SET ROLE` (o `postgres` do supabase_db
-   não é superuser e cai no RLS) — prefira o fluxo pela aplicação. O convite
-   (`/v1/users/invite`) já cria o espelho dos demais usuários.
-2. **Login** em `https://openrate.talkhub.me` → criar organização (super_admin)
-   → criar lojas → convidar `owner`/`manager`/`attendant` (a API grava o
-   `app_metadata` no gotrue e o espelho em `openrate.users`).
+   Retorna `access_token`/`refresh_token` (já autentica) e cria o super_admin
+   (`organization_id` NULL) em `openrate.users`.
+2. **Login** em `https://openrate.talkhub.me` com esse e-mail/senha → criar
+   organização → criar lojas → convidar `owner`/`manager`/`attendant`. O convite
+   (`POST /v1/users/invite`) cria o usuário em `openrate.users` com uma **senha
+   temporária** (retornada na resposta) que o convidante repassa; o convidado troca depois.
 3. **Atendente**: abre `https://openrate.talkhub.me`, faz login, "adiciona à
    tela inicial" (PWA) e começa a gravar.
 

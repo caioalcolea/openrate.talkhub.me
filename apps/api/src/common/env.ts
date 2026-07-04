@@ -40,8 +40,9 @@ const DEFAULT_JWT_SECRET = 'dev-super-secret-hs256-change-me';
 export function assertProductionEnv(): void {
   if (env.nodeEnv !== 'production') return;
   const bad: string[] = [];
+  // SUPABASE_JWT_SECRET é ESSENCIAL: a API assina o próprio JWT com ele (auth
+  // própria — o gotrue compartilhado tem login por e-mail desabilitado).
   if (!env.jwtSecret || env.jwtSecret === DEFAULT_JWT_SECRET) bad.push('SUPABASE_JWT_SECRET');
-  if (!env.supabaseServiceRoleKey) bad.push('SUPABASE_SERVICE_ROLE_KEY');
   if (!env.s3SecretKey || env.s3SecretKey === 'minioadmin') bad.push('S3_SECRET_KEY');
   if (env.databaseUrl.includes('dev_openrate')) bad.push('DATABASE_URL');
   if (bad.length) {

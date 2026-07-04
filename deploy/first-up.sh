@@ -44,11 +44,9 @@ set -a; . "$ENV_FILE"; set +a
 : "${S3_ACCESS_KEY:?}"; : "${S3_SECRET_KEY:?}"
 : "${MINIO_ROOT_USER:?defina em .env}"; : "${MINIO_ROOT_PASSWORD:?defina em .env}"
 : "${SUPABASE_JWT_SECRET:?}"; : "${BULLBOARD_BASICAUTH:?}"
-# Sem estes a stack sobe 5/5 e o /health passa, mas login/convite/provisionamento
-# de usuário ficam MORTOS (auth via gotrue). Exige antes de subir.
-: "${SUPABASE_URL:?defina em .env}"
-: "${SUPABASE_ANON_KEY:?defina em .env}"
-: "${SUPABASE_SERVICE_ROLE_KEY:?defina em .env}"
+# SUPABASE_JWT_SECRET (acima) é essencial: a API assina o próprio JWT com ele
+# (auth própria — o gotrue compartilhado tem login por e-mail desabilitado).
+# SUPABASE_URL/ANON/SERVICE_ROLE não são mais exigidos (a API não chama o gotrue).
 # As senhas de DB/Redis entram CRUAS em DATABASE_URL/REDIS_URL (URI) no openrate.yaml.
 # Um char reservado de URI (@ : / ? # % espaço…) reparseia host/porta e quebra a conexão
 # de TODOS os apps silenciosamente — a role é criada, o script passa verde, mas os
@@ -161,9 +159,10 @@ if [ -z "$(psql_owner -tAc "SELECT to_regclass('openrate.organizations')")" ]; t
 else
   log "  schema openrate já migrado (0001) — pulando"
 fi
-log "  aplicando 0002 (resolver de link) e 0003 (seed video_types) como openrate_owner"
+log "  aplicando 0002 (resolver), 0003 (seed) e 0004 (auth própria) como openrate_owner"
 sed '/^-- migrate:down/,$d' db/migrations/0002_affiliate_link_resolver.sql | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
 sed '/^-- migrate:down/,$d' db/migrations/0003_seed_video_types.sql        | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
+sed '/^-- migrate:down/,$d' db/migrations/0004_own_auth.sql                | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
 
 # contagens COMO owner. video_types roda sob FORCE RLS até p/ o dono; usamos um claim
 # super_admin TRANSACTION-LOCAL (is_local=true — mesmo padrão seguro do app, que não

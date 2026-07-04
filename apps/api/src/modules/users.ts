@@ -1,17 +1,25 @@
-import { Body, Controller, ForbiddenException, Get, Module, Param, Post } from '@nestjs/common';
-import axios from 'axios';
+import {
+  Body,
+  ConflictException,
+  Controller,
+  ForbiddenException,
+  Get,
+  Module,
+  Param,
+  Post,
+} from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import {
   inviteUserSchema,
   roleAtLeast,
   type InviteUserInput,
-  OPENRATE_PRODUCT,
   type TenantContext,
 } from '@openrate/shared';
 import { PgService } from '../common/pg.service';
 import { CurrentTenant } from '../common/tenant';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { Roles } from '../auth/roles.decorator';
-import { env } from '../common/env';
+import { hashPassword } from '../common/password';
 
 @Controller()
 class UsersController {
@@ -33,16 +41,17 @@ class UsersController {
     );
   }
 
-  // Convite: cria o usuário no gotrue (Admin API, service_role) com app_metadata
-  // {product, org_id, store_id, role} e grava o espelho em openrate.users.
+  // Convite: cria o usuário DIRETO em openrate.users (auth própria; o gotrue
+  // compartilhado tem login por e-mail desabilitado) com uma senha temporária que
+  // o convidante repassa. A inserção roda no tenant do convidante (RLS garante que
+  // só cria dentro da org dele). O convidado troca a senha depois.
   @Post('users/invite')
   @Roles('manager')
   async invite(
     @CurrentTenant() t: TenantContext,
     @Body(new ZodValidationPipe(inviteUserSchema)) dto: InviteUserInput,
-  ): Promise<{ id: string; email: string }> {
-    // Anti-escalonamento: nunca convidar super_admin por aqui, e nunca convidar
-    // alguém MAIS privilegiado que o convidante (manager não cria owner).
+  ): Promise<{ id: string; email: string; tempPassword: string }> {
+    // Anti-escalonamento: nunca convidar super_admin, nem alguém mais privilegiado.
     if (dto.role === 'super_admin') {
       throw new ForbiddenException('super_admin não é criado por convite');
     }
@@ -50,46 +59,33 @@ class UsersController {
       throw new ForbiddenException('você não pode convidar um papel mais privilegiado que o seu');
     }
     const storeId = dto.storeId ?? t.storeId ?? null;
-    const created = await axios.post(
-      `${env.supabaseUrl}/auth/v1/admin/users`,
-      {
-        email: dto.email,
-        email_confirm: true,
-        app_metadata: {
-          product: OPENRATE_PRODUCT,
-          org_id: t.orgId,
-          store_id: storeId,
-          role: dto.role,
-        },
-        user_metadata: { full_name: dto.fullName },
-      },
-      {
-        headers: {
-          apikey: env.supabaseServiceRoleKey,
-          Authorization: `Bearer ${env.supabaseServiceRoleKey}`,
-          'Content-Type': 'application/json',
-        },
-      },
-    );
-    const userId: string = created.data.id;
+    const tempPassword = randomBytes(9).toString('base64url'); // ~12 chars
+    const passwordHash = await hashPassword(tempPassword);
 
-    await this.pg.withTenant(t, async (c) => {
-      await c.query(
-        `INSERT INTO openrate.users (id, organization_id, role, email, full_name, phone)
-         VALUES ($1,$2,$3,$4,$5,$6)
-         ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role, full_name = EXCLUDED.full_name`,
-        [userId, t.orgId, dto.role, dto.email, dto.fullName, dto.phone ?? null],
-      );
-      if (storeId) {
-        await c.query(
-          `INSERT INTO openrate.user_stores (user_id, store_id, organization_id)
-           VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
-          [userId, storeId, t.orgId],
+    try {
+      const userId = await this.pg.withTenant(t, async (c) => {
+        const r = await c.query<{ id: string }>(
+          `INSERT INTO openrate.users (organization_id, role, email, full_name, phone, password_hash)
+           VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+          [t.orgId, dto.role, dto.email, dto.fullName, dto.phone ?? null, passwordHash],
         );
+        const id = r.rows[0].id;
+        if (storeId) {
+          await c.query(
+            `INSERT INTO openrate.user_stores (user_id, store_id, organization_id)
+             VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+            [id, storeId, t.orgId],
+          );
+        }
+        return id;
+      });
+      return { id: userId, email: dto.email, tempPassword };
+    } catch (e) {
+      if ((e as { code?: string }).code === '23505') {
+        throw new ConflictException('já existe um usuário com este e-mail');
       }
-    });
-
-    return { id: userId, email: dto.email };
+      throw e;
+    }
   }
 }
 
