@@ -7,6 +7,8 @@ export const metadata: Metadata = {
   description: 'Transforme atendentes em creators — roteiros por IA, gravação guiada e comissão via Pix.',
   manifest: '/manifest.webmanifest',
   appleWebApp: { capable: true, title: 'OpenRate', statusBarStyle: 'default' },
+  // padrão atual (o apple-mobile-web-app-capable está deprecado no Chrome)
+  other: { 'mobile-web-app-capable': 'yes' },
 };
 
 export const viewport: Viewport = {

@@ -29,8 +29,8 @@ function LoginForm() {
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 p-6">
       <h1 className="text-2xl font-bold text-brand">Entrar no OpenRate</h1>
       <form onSubmit={onSubmit} className="card flex flex-col gap-3">
-        <input className="input" type="email" placeholder="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <input className="input" type="password" placeholder="Senha" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <input className="input" type="email" name="email" autoComplete="email" placeholder="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <input className="input" type="password" name="password" autoComplete="current-password" placeholder="Senha" value={password} onChange={(e) => setPassword(e.target.value)} required />
         {error && <p className="text-sm text-red-600">{error}</p>}
         <button className="btn" disabled={busy} type="submit">
           {busy ? 'Entrando…' : 'Entrar'}

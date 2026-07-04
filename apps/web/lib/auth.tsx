@@ -1,7 +1,7 @@
 'use client';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { UserRole } from '@openrate/shared';
-import { api, setTokens, clearTokens, getToken } from './api';
+import { api, setTokens, clearTokens, getToken, switchOrg as apiSwitchOrg } from './api';
 
 interface Me {
   user: { id: string; email?: string; full_name?: string; role: UserRole };
@@ -15,6 +15,8 @@ interface AuthState {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  switchOrg: (orgId: string) => Promise<void>;
+  reload: () => Promise<void>;
 }
 
 const AuthCtx = createContext<AuthState | null>(null);
@@ -56,7 +58,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMe(null);
   }
 
-  return <AuthCtx.Provider value={{ me, loading, login, logout }}>{children}</AuthCtx.Provider>;
+  async function switchOrg(orgId: string) {
+    await apiSwitchOrg(orgId);
+    await loadMe();
+  }
+
+  return (
+    <AuthCtx.Provider value={{ me, loading, login, logout, switchOrg, reload: loadMe }}>
+      {children}
+    </AuthCtx.Provider>
+  );
 }
 
 export function useAuth(): AuthState {

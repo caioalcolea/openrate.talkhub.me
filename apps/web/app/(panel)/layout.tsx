@@ -30,10 +30,24 @@ function Shell({ children }: { children: React.ReactNode }) {
           {isSuper && <Link href="/orgs">Organizações</Link>}
         </nav>
         <div className="flex items-center gap-3 text-sm text-neutral-600">
+          {me.org ? (
+            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs">{me.org.name}</span>
+          ) : isSuper ? (
+            <Link href="/orgs" className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+              selecione uma organização
+            </Link>
+          ) : null}
           <span>{me.user.full_name ?? me.user.email} · {me.role}</span>
           <button className="text-red-600" onClick={logout}>Sair</button>
         </div>
       </header>
+      {isSuper && !me.org && (
+        <div className="border-b bg-amber-50 px-6 py-2 text-sm text-amber-800">
+          Você é super_admin e ainda não entrou em nenhuma organização. Vá em{' '}
+          <Link href="/orgs" className="font-semibold underline">Organizações</Link> para criar/entrar
+          numa org antes de cadastrar lojas, produtos e metas.
+        </div>
+      )}
       <main className="mx-auto max-w-5xl p-6">{children}</main>
     </div>
   );
