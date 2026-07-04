@@ -13,7 +13,7 @@ Lojas físicas (varejo, suplementos, pet shops, etc.) têm produtos e vendedores
 
 ### 1.2 Fluxo principal (ponta a ponta)
 1. IA gera **40 ideias de vídeo** por produto (hook, roteiro passo a passo, legenda, hashtags, duração alvo).
-2. Atendente escolhe uma ideia no app mobile; tela de gravação exibe **overlay-guia** (teleprompter/checklist) baseado no roteiro.
+2. Atendente escolhe uma ideia no app web (PWA instalável, aberto no navegador do celular); tela de gravação exibe **overlay-guia** (teleprompter/checklist) baseado no roteiro.
 3. Vídeo bruto é enviado (upload resumível) para processamento.
 4. Microserviço de edição (fila assíncrona) corta, adiciona legendas automáticas, marca d'água e gera thumbnail — devolve vídeo final para download/publicação.
 5. Vídeo é publicado (manual assistido ou via API) em uma ou mais plataformas; cada publicação gera um **link de afiliado rastreável**.
@@ -46,8 +46,8 @@ Avaliamos o projeto open-source MoneyPrinterV2 como possível base de código. E
 
 | Camada | Tecnologia | Justificativa |
 |---|---|---|
-| App do atendente | React Native + Expo | Base única Android/iOS, acesso à câmera, upload resumível |
-| Painel admin/dono | Next.js + Tailwind + shadcn/ui | Dashboard web responsivo, rápido de construir |
+| App do atendente | PWA (Next.js, mesmo app do painel) | 100% web, sem loja de aplicativos. Câmera via `getUserMedia`/`MediaRecorder`, upload resumível via presigned; instalável ("Adicionar à tela inicial") e com fila offline via service worker |
+| Painel admin/dono | Next.js + Tailwind + shadcn/ui | Dashboard web responsivo; mesma base do PWA do atendente, com rotas por role |
 | API principal | Node.js (NestJS ou Express) | Alinhado ao ecossistema Talkhub, integra fácil com BullMQ |
 | Banco de dados | PostgreSQL (via Supabase self-hosted) | Multi-tenant com RLS nativo, já provisionado na infra Talkhub |
 | Autenticação | Supabase Auth (gotrue) | JWT com `org_id`, já em produção na rede `talkhub` |

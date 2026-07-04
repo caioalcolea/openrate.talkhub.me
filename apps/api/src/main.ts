@@ -1,0 +1,31 @@
+import 'reflect-metadata';
+import { NestFactory } from '@nestjs/core';
+import { randomUUID } from 'node:crypto';
+import type { Request, Response, NextFunction } from 'express';
+import { AppModule } from './app.module';
+import { env, assertProductionEnv } from './common/env';
+
+async function bootstrap(): Promise<void> {
+  // Fail-closed: em produção, aborta se segredos estiverem ausentes/padrão.
+  assertProductionEnv();
+  const app = await NestFactory.create(AppModule, { bodyParser: true });
+
+  // correlation id fim a fim (propagado para os jobs).
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const id = (req.headers['x-request-id'] as string) || randomUUID();
+    req.headers['x-request-id'] = id;
+    res.setHeader('x-request-id', id);
+    next();
+  });
+
+  app.enableCors({ origin: true, credentials: true });
+  // Prefixo /v1 em tudo, menos o /health (healthcheck do container) e o
+  // redirect público de link de afiliado /r/:code (URL curta compartilhável).
+  app.setGlobalPrefix('v1', { exclude: ['health', 'r/:code'] });
+
+  await app.listen(env.port, '0.0.0.0');
+  // eslint-disable-next-line no-console
+  console.log(`OpenRate API no ar em :${env.port}`);
+}
+
+void bootstrap();

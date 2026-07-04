@@ -1,0 +1,102 @@
+// Espelho EXATO dos ENUMs do schema openrate (db/migrations/0001_init.sql).
+// Fonte única de verdade dos valores de domínio para API, worker e web.
+
+export const USER_ROLES = ['super_admin', 'owner', 'manager', 'attendant'] as const;
+export type UserRole = (typeof USER_ROLES)[number];
+
+export const PRODUCT_SCOPES = ['store', 'organization', 'platform'] as const;
+export type ProductScope = (typeof PRODUCT_SCOPES)[number];
+
+export const PRODUCT_ORIGINS = ['integration', 'manual', 'platform'] as const;
+export type ProductOrigin = (typeof PRODUCT_ORIGINS)[number];
+
+export const VIDEO_STATUSES = [
+  'draft',
+  'recording',
+  'uploaded',
+  'processing',
+  'ready',
+  'approved',
+  'rejected',
+  'published',
+  'failed',
+] as const;
+export type VideoStatus = (typeof VIDEO_STATUSES)[number];
+
+export const PUBLICATION_PLATFORMS = [
+  'tiktok',
+  'instagram_reels',
+  'shopee_video',
+  'kwai',
+  'mercado_livre_clips',
+  'youtube_shorts',
+] as const;
+export type PublicationPlatform = (typeof PUBLICATION_PLATFORMS)[number];
+
+export const PUBLICATION_STATUSES = [
+  'pending',
+  'scheduled',
+  'publishing',
+  'published',
+  'failed',
+  'removed',
+] as const;
+export type PublicationStatus = (typeof PUBLICATION_STATUSES)[number];
+
+export const SALE_STATUSES = ['pending', 'confirmed', 'cancelled', 'refunded'] as const;
+export type SaleStatus = (typeof SALE_STATUSES)[number];
+
+export const COMMISSION_ENTRY_STATUSES = [
+  'pending',
+  'payable',
+  'settled',
+  'paid',
+  'cancelled',
+] as const;
+export type CommissionEntryStatus = (typeof COMMISSION_ENTRY_STATUSES)[number];
+
+export const PAYOUT_STATUSES = [
+  'pending_approval',
+  'approved',
+  'processing',
+  'paid',
+  'failed',
+  'cancelled',
+] as const;
+export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
+
+export const GOAL_PERIODS = ['daily', 'weekly', 'monthly'] as const;
+export type GoalPeriod = (typeof GOAL_PERIODS)[number];
+
+export const INTEGRATION_PROVIDERS = [
+  'olist',
+  'tiny',
+  'asaas',
+  'evolution',
+  'docuseal',
+  'tiktok',
+  'instagram',
+  'shopee',
+  'kwai',
+  'mercado_livre',
+  'youtube',
+  'other',
+] as const;
+export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
+
+export const NOTIFICATION_CHANNELS = ['whatsapp', 'push', 'email', 'in_app'] as const;
+export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
+
+export const COMMISSION_BENEFICIARIES = ['creator', 'store', 'platform'] as const;
+export type CommissionBeneficiary = (typeof COMMISSION_BENEFICIARIES)[number];
+
+// Ordem de especificidade do motor de comissão (mais específica vence).
+// Espelha o priority GENERATED da tabela commission_rules:
+// product(16) > category(8) > store(4) > organization(2) > platform(1).
+export const COMMISSION_RULE_WEIGHTS = {
+  product: 16,
+  category: 8,
+  store: 4,
+  organization: 2,
+  platform: 1,
+} as const;

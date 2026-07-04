@@ -1,0 +1,263 @@
+version: "3.7"
+services:
+
+## --------------------------- ORION --------------------------- ##
+
+## As chaves de serviço deste yaml JÁ SÃO prefixadas (openrate_*) de propósito:
+## o Swarm registra a chave curta do compose como alias DNS na rede compartilhada
+## talkhub, e uma chave genérica ("redis", "api", "web") colidiria com serviços
+## de outras stacks (ex.: a stack global "redis" registra o alias "redis").
+## Mesmo padrão já usado no servidor por evolution_evolution_api e chatwoot_chatwoot_app.
+## Bônus: o alias "openrate_redis" resolve independentemente do nome dado à stack.
+
+  openrate_redis:
+    image: redis:7-alpine ## Redis dedicado do OpenRate — NÃO usar o redis global (redis_redis), que não tem noeviction
+    ## noeviction é obrigatório para o BullMQ não perder jobs; maxmemory abaixo do limit do
+    ## cgroup (512M) faz o Redis devolver erro de escrita controlado em vez de ser OOM-killed;
+    ## requirepass isola o Redis dos demais containers da rede compartilhada talkhub
+    command: redis-server --appendonly yes --maxmemory-policy noeviction --maxmemory 400mb --requirepass ${OPENRATE_REDIS_PASSWORD}
+    volumes:
+      - openrate_redis_data:/data
+    networks:
+      - talkhub ## Nome da rede interna
+    environment:
+    ## 🔑 Ajustes gerais
+      - TZ=America/Sao_Paulo
+      - REDIS_PASSWORD=${OPENRATE_REDIS_PASSWORD} ## usado apenas pelo healthcheck abaixo
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a $$REDIS_PASSWORD ping | grep -q PONG"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+## --------------------------- ORION --------------------------- ##
+
+  openrate_api:
+    image: talkhub/openrate-api:latest ## API NestJS (build local no servidor)
+    networks:
+      - talkhub ## Nome da rede interna
+    environment:
+    ## 🔑 Aplicação
+      - NODE_ENV=production
+      - PORT=3000
+      - TZ=America/Sao_Paulo
+    ## 🔑 Banco de dados — REUSA o Postgres do Supabase (schema dedicado "openrate", role openrate_app)
+    ##    search_path=openrate é definido no nível da role (ALTER ROLE ... SET search_path — ver runbook passo 3)
+      - DATABASE_URL=postgresql://openrate_app:${OPENRATE_DB_PASSWORD}@supabase_db:5432/postgres
+      - DATABASE_POOL_MAX=10 ## máx. 10 conexões p/ não esgotar max_connections compartilhado com gotrue/postgrest/storage
+    ## 🔑 Filas — Redis DEDICADO da stack (alias openrate_redis; o global compartilhado é redis_redis — NUNCA usar)
+      - REDIS_URL=redis://:${OPENRATE_REDIS_PASSWORD}@openrate_redis:6379
+    ## 🔑 Supabase Auth (gotrue) — validação local de JWT + Admin API p/ app_metadata (org_id, store_id, role)
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+    ## 🔑 Storage — REUSA o MinIO existente; upload direto do navegador (PWA) via presigned multipart (vídeo NÃO passa pela API)
+      - S3_ENDPOINT=http://minio_minio:9000
+      - S3_PUBLIC_ENDPOINT=https://bucketss3.talkhub.me
+      - S3_BUCKET=openrate-media
+      - S3_REGION=eu-south
+      - S3_FORCE_PATH_STYLE=true
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
+    ## 🔑 Webhooks de terceiros (validados por token próprio; podem ficar vazios no MVP)
+      - ASAAS_WEBHOOK_TOKEN=${ASAAS_WEBHOOK_TOKEN}
+      - DOCUSEAL_WEBHOOK_TOKEN=${DOCUSEAL_WEBHOOK_TOKEN}
+    ## 🔑 URL pública da própria API — base dos links de afiliado (/r/:code)
+      - API_PUBLIC_URL=https://openrate-api.talkhub.me
+    ## NOTA: a API só ENFILEIRA jobs — quem chama Anthropic/Asaas/Evolution/
+    ##       Browserless é o worker. Por menor-privilégio, esses segredos NÃO
+    ##       são injetados aqui (ficam só no openrate_worker).
+    healthcheck:
+      ## usa o node da própria imagem (Node >= 18 tem fetch) — não depende de wget/curl na base
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1024M
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.openrate_api.rule=Host(`openrate-api.talkhub.me`)
+        - traefik.http.routers.openrate_api.entrypoints=websecure
+        - traefik.http.routers.openrate_api.tls.certresolver=letsencryptresolver
+        - traefik.http.services.openrate_api.loadbalancer.server.port=3000
+        - traefik.http.services.openrate_api.loadbalancer.passHostHeader=true
+        - traefik.http.routers.openrate_api.service=openrate_api
+
+## --------------------------- ORION --------------------------- ##
+
+  openrate_worker:
+    image: talkhub/openrate-worker:latest ## Worker BullMQ + FFmpeg + whisper-ctranslate2 (build local no servidor)
+    networks:
+      - talkhub ## Nome da rede interna
+    environment:
+    ## 🔑 Aplicação
+      - NODE_ENV=production
+      - TZ=America/Sao_Paulo
+    ## 🔑 Processamento — concorrência POR FILA (docs/02 §2.2); video-processing=1 no go-live
+    ##    (nó único compartilhado com toda a produção — aumentar só com medição)
+      - CONCURRENCY_VIDEO_PROCESSING=1
+      - CONCURRENCY_AI_SCRIPT=2
+      - CONCURRENCY_METRICS_SYNC=2
+      - CONCURRENCY_NOTIFICATIONS=5
+      - WHISPER_MODEL=small
+    ## 🔑 Banco de dados — mesma conexão da API (schema "openrate", role openrate_app)
+      - DATABASE_URL=postgresql://openrate_app:${OPENRATE_DB_PASSWORD}@supabase_db:5432/postgres
+      - DATABASE_POOL_MAX=5 ## worker usa pool menor que a API
+    ## 🔑 Filas — Redis DEDICADO da stack (alias openrate_redis; NUNCA o global redis_redis)
+      - REDIS_URL=redis://:${OPENRATE_REDIS_PASSWORD}@openrate_redis:6379
+    ## NOTA: o worker NÃO valida JWT nem usa a Admin API do gotrue (processa jobs
+    ##       com claims sintéticos do tenant). Por menor-privilégio, os segredos
+    ##       SUPABASE_* (incl. service_role) ficam só no openrate_api.
+    ## 🔑 Storage — MinIO (download do raw/, upload do final/ e thumbs/)
+      - S3_ENDPOINT=http://minio_minio:9000
+      - S3_PUBLIC_ENDPOINT=https://bucketss3.talkhub.me
+      - S3_BUCKET=openrate-media
+      - S3_REGION=eu-south
+      - S3_FORCE_PATH_STYLE=true
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
+    ## 🔑 IA — geração de ideias/roteiros (fila ai-script-generation)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - AI_MODEL_PRIMARY=claude-sonnet-5
+      - AI_MODEL_FALLBACK=claude-haiku-4-5
+    ## 🔑 Pagamentos — filas commission-settlement e payout-pix (Asaas)
+      - ASAAS_API_KEY=${ASAAS_API_KEY}
+      - ASAAS_BASE_URL=${ASAAS_BASE_URL}
+    ## 🔑 WhatsApp — fila notifications (Evolution API)
+      - EVOLUTION_API_URL=http://evolution_evolution_api:8080
+      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
+      - EVOLUTION_INSTANCE=${EVOLUTION_INSTANCE}
+    ## 🔑 Scraping de métricas — fila metrics-sync (Browserless)
+      - BROWSERLESS_URL=http://browserless_browserless:3000
+    healthcheck:
+      ## Script incluído na imagem do worker: faz PING no Redis e SELECT 1 no Postgres; sai com código != 0 em falha
+      test: ["CMD-SHELL", "node dist/healthcheck.js || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "2"
+          memory: 3072M
+
+## --------------------------- ORION --------------------------- ##
+
+  openrate_web:
+    image: talkhub/openrate-web:latest ## Painel admin + PWA do atendente (Next.js, build local no servidor)
+    networks:
+      - talkhub ## Nome da rede interna
+    environment:
+    ## 🔑 Aplicação
+      - NODE_ENV=production
+      - PORT=3000
+      - TZ=America/Sao_Paulo
+    ## 🔑 API pública consumida pelo browser (painel e PWA)
+      - NEXT_PUBLIC_API_URL=https://openrate-api.talkhub.me
+    healthcheck:
+      ## usa o node da própria imagem (Node >= 18 tem fetch) — não depende de wget/curl na base
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.openrate_web.rule=Host(`openrate.talkhub.me`)
+        - traefik.http.routers.openrate_web.entrypoints=websecure
+        - traefik.http.routers.openrate_web.tls.certresolver=letsencryptresolver
+        - traefik.http.services.openrate_web.loadbalancer.server.port=3000
+        - traefik.http.services.openrate_web.loadbalancer.passHostHeader=true
+        - traefik.http.routers.openrate_web.service=openrate_web
+
+## --------------------------- ORION --------------------------- ##
+
+  openrate_bullboard:
+    image: talkhub/openrate-bullboard:latest ## Bull Board standalone (imagem própria mínima: express + @bull-board)
+    networks:
+      - talkhub ## Nome da rede interna
+    environment:
+    ## 🔑 Aplicação
+      - NODE_ENV=production
+      - PORT=3000
+      - TZ=America/Sao_Paulo
+    ## 🔑 Filas — leitura das filas no Redis dedicado da stack (alias openrate_redis)
+      - REDIS_URL=redis://:${OPENRATE_REDIS_PASSWORD}@openrate_redis:6379
+    healthcheck:
+      ## usa o node da própria imagem (Node >= 18 tem fetch) — não depende de wget/curl na base
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.openrate_bullboard.rule=Host(`openrate-queues.talkhub.me`)
+        - traefik.http.routers.openrate_bullboard.entrypoints=websecure
+        - traefik.http.routers.openrate_bullboard.tls.certresolver=letsencryptresolver
+        - traefik.http.services.openrate_bullboard.loadbalancer.server.port=3000
+        - traefik.http.services.openrate_bullboard.loadbalancer.passHostHeader=true
+        - traefik.http.routers.openrate_bullboard.service=openrate_bullboard
+        ## 🔑 Basic auth no Traefik — valor vem da env var da stack no Portainer (gerar com htpasswd, ver runbook passo 6)
+        - traefik.http.middlewares.openrate_bullboard_auth.basicauth.users=${BULLBOARD_BASICAUTH}
+        - traefik.http.routers.openrate_bullboard.middlewares=openrate_bullboard_auth
+
+## --------------------------- ORION --------------------------- ##
+
+volumes:
+  openrate_redis_data:
+    external: true
+    name: openrate_redis_data
+
+networks:
+  talkhub:
+    external: true
+    name: talkhub

@@ -1,0 +1,65 @@
+# Infra local para desenvolvimento (Postgres + Redis + MinIO).
+# Os apps rodam no host com `pnpm dev` (usando .env.dev). Isto sobe só as
+# dependências. NÃO usar em produção — produção é a stack Swarm (deploy/).
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   # aplicar migration:
+#   docker compose -f docker-compose.dev.yml exec -T db \
+#     psql -U postgres -d openrate -v ON_ERROR_STOP=1 < <(sed '/^-- migrate:down/,$d' db/migrations/0001_init.sql)
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: openrate
+      TZ: America/Sao_Paulo
+    ports:
+      - "5432:5432"
+    volumes:
+      - openrate_dev_db:/var/lib/postgresql/data
+      - ./db/dev-init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d openrate"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    ports:
+      - "6379:6379"
+    volumes:
+      - openrate_dev_redis:/data
+
+  minio:
+    image: quay.io/minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_REGION_NAME: eu-south
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - openrate_dev_minio:/data
+
+  minio-setup:
+    image: quay.io/minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 2; done;
+      mc mb --ignore-existing local/openrate-media;
+      mc anonymous set none local/openrate-media;
+      echo 'bucket openrate-media pronto';
+      "
+
+volumes:
+  openrate_dev_db:
+  openrate_dev_redis:
+  openrate_dev_minio:
