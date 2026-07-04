@@ -19,7 +19,13 @@ services:
     volumes:
       - openrate_redis_data:/data
     networks:
-      - talkhub ## Nome da rede interna
+      ## ALIAS EXPLÍCITO obrigatório: numa overlay EXTERNA compartilhada o Swarm
+      ## registra o serviço só pelo nome completo (openrate_openrate_redis) e NÃO
+      ## pela chave curta do compose. Sem este alias, api/worker/bullboard (que usam
+      ## REDIS_URL=...@openrate_redis:6379) recebem ENOTFOUND openrate_redis.
+      talkhub:
+        aliases:
+          - openrate_redis
     environment:
     ## 🔑 Ajustes gerais
       - TZ=America/Sao_Paulo
