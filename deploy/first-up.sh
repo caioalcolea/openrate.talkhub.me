@@ -87,14 +87,19 @@ CREATE ROLE openrate_app LOGIN PASSWORD :'pw' NOSUPERUSER NOCREATEDB NOCREATEROL
 SQL
   log "  role openrate_app criada"
 fi
-# schema (dono = owner) + search_path + grants (idempotente)
-# NOTA: no supabase_db o "postgres" NÃO é superuser (é CREATEROLE). Para criar o
-# schema com AUTHORIZATION openrate_owner — e depois SET ROLE openrate_owner — ele
-# precisa ser MEMBRO da role. Com CREATEROLE ele pode conceder a si mesmo.
+# Conexão como o DONO do schema (openrate_owner) via TCP+senha — a MESMA via do app.
+# No supabase_db o postgres NÃO é superuser e o supautils ENCERRA a conexão (FATAL)
+# em `GRANT <role> TO postgres` e em `SET ROLE`; por isso NÃO usamos SET ROLE nem
+# CREATE SCHEMA AUTHORIZATION: o owner cria os próprios objetos conectando como ele.
+psql_owner(){ docker exec -e PGPASSWORD="$OPENRATE_DB_OWNER_PASSWORD" -i "$DBCTR" psql -h 127.0.0.1 -U openrate_owner -d postgres "$@"; }
+
+# schema criado pelo postgres (vira dono do schema); CREATE/USAGE p/ o owner criar
+# as TABELAS (que ficam do owner — é o que importa p/ o FORCE RLS). Idempotente.
 psql_su -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 GRANT CONNECT ON DATABASE postgres TO openrate_owner, openrate_app;
-GRANT openrate_owner TO CURRENT_USER;
-CREATE SCHEMA IF NOT EXISTS openrate AUTHORIZATION openrate_owner;
+CREATE SCHEMA IF NOT EXISTS openrate;
+GRANT USAGE, CREATE ON SCHEMA openrate TO openrate_owner;
+GRANT USAGE ON SCHEMA openrate TO openrate_app;
 ALTER ROLE openrate_owner SET search_path = openrate, extensions;
 ALTER ROLE openrate_app   SET search_path = openrate, extensions;
 DO $$ BEGIN
@@ -111,27 +116,27 @@ END $$;
 REVOKE CREATE ON SCHEMA public FROM openrate_app;
 SQL
 
-if [ -z "$(psql_su -tAc "SET ROLE openrate_owner; SELECT to_regclass('openrate.organizations')" | tail -1)" ]; then
+# confere a conexão como owner ANTES das migrations (mensagem clara se falhar)
+psql_owner -tAc "SELECT 1" >/dev/null 2>&1 \
+  || die "não consegui conectar como openrate_owner via TCP+senha (confira OPENRATE_DB_OWNER_PASSWORD e o pg_hba do supabase_db)."
+
+# 0001/0002/0003 aplicadas COMO openrate_owner (conexão direta; sem SET ROLE).
+# 0002 usa policy só-para-o-owner na affiliate_links (a função SECURITY DEFINER roda
+# como o owner); 0003 suspende o FORCE só durante o seed org-null e o restaura.
+if [ -z "$(psql_owner -tAc "SELECT to_regclass('openrate.organizations')")" ]; then
   log "  aplicando 0001_init.sql (como openrate_owner)"
-  { echo "SET ROLE openrate_owner;"; sed '/^-- migrate:down/,$d' db/migrations/0001_init.sql; echo "RESET ROLE;"; } \
-    | psql_su -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
+  sed '/^-- migrate:down/,$d' db/migrations/0001_init.sql | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
 else
   log "  schema openrate já migrado (0001) — pulando"
 fi
-# 0002/0003 rodam como openrate_owner (dono do schema/tabelas). Sem superuser no
-# supabase_db, é o owner quem contorna o RLS de forma controlada: a 0002 cria uma
-# policy só-para-o-owner na affiliate_links (a função SECURITY DEFINER roda como
-# o owner) e a 0003 suspende o FORCE só durante o seed org-null e o restaura.
 log "  aplicando 0002 (resolver de link) e 0003 (seed video_types) como openrate_owner"
-{ echo "SET ROLE openrate_owner;"; sed '/^-- migrate:down/,$d' db/migrations/0002_affiliate_link_resolver.sql; echo "RESET ROLE;"; } \
-  | psql_su -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
-{ echo "SET ROLE openrate_owner;"; sed '/^-- migrate:down/,$d' db/migrations/0003_seed_video_types.sql; echo "RESET ROLE;"; } \
-  | psql_su -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
-# A contagem de video_types roda sob RLS (postgres não é dono nem tem BYPASSRLS);
-# usamos um claim super_admin efêmero p/ a policy super_admin_all liberar a leitura,
-# senão o log mostraria 0 mesmo com o seed aplicado.
-_vt="$(psql_su -tAc "SELECT set_config('request.jwt.claims','{\"app_metadata\":{\"role\":\"super_admin\"}}',false); SELECT count(*) FROM openrate.video_types WHERE organization_id IS NULL" | tail -1 | tr -d '[:space:]')"
-log "  banco: $(psql_su -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='openrate' AND table_type='BASE TABLE'") tabelas, ${_vt:-?} tipos de vídeo"
+sed '/^-- migrate:down/,$d' db/migrations/0002_affiliate_link_resolver.sql | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
+sed '/^-- migrate:down/,$d' db/migrations/0003_seed_video_types.sql        | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
+
+# contagens COMO owner. video_types roda sob FORCE RLS até p/ o dono; usamos um claim
+# super_admin efêmero p/ a policy super_admin_all liberar a leitura (senão mostraria 0).
+_vt="$(psql_owner -tAc "SELECT set_config('request.jwt.claims','{\"app_metadata\":{\"role\":\"super_admin\"}}',false); SELECT count(*) FROM openrate.video_types WHERE organization_id IS NULL" | tail -1 | tr -d '[:space:]')"
+log "  banco: $(psql_owner -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='openrate' AND table_type='BASE TABLE'") tabelas, ${_vt:-?} tipos de vídeo"
 
 # ---------------------------------------------------------------- 5. MinIO
 log "5/8 MinIO (bucket + lifecycle + usuário + policy)"
