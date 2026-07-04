@@ -72,14 +72,19 @@ DBCTR="$(find_ctr supabase_db)"; [ -n "$DBCTR" ] || die "container supabase_db n
 psql_su -tAc "SELECT 1" >/dev/null 2>&1 || die "não consegui conectar no supabase_db como postgres."
 
 role_exists(){ [ "$(psql_su -tAc "SELECT 1 FROM pg_roles WHERE rolname='$1'")" = "1" ]; }
+# IMPORTANTE: a substituição de variáveis do psql (:'pw') SÓ acontece quando o SQL
+# vem do stdin/-f — NÃO com -c (o -c manda a string crua ao servidor). Por isso
+# alimentamos via heredoc, e não via -c.
 if role_exists openrate_owner; then log "  role openrate_owner ok"; else
-  psql_su -v ON_ERROR_STOP=1 -v pw="$OPENRATE_DB_OWNER_PASSWORD" \
-    -c "CREATE ROLE openrate_owner LOGIN PASSWORD :'pw' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;" >/dev/null
+  psql_su -v ON_ERROR_STOP=1 -v pw="$OPENRATE_DB_OWNER_PASSWORD" >/dev/null <<'SQL'
+CREATE ROLE openrate_owner LOGIN PASSWORD :'pw' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+SQL
   log "  role openrate_owner criada"
 fi
 if role_exists openrate_app; then log "  role openrate_app ok"; else
-  psql_su -v ON_ERROR_STOP=1 -v pw="$OPENRATE_DB_PASSWORD" \
-    -c "CREATE ROLE openrate_app LOGIN PASSWORD :'pw' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;" >/dev/null
+  psql_su -v ON_ERROR_STOP=1 -v pw="$OPENRATE_DB_PASSWORD" >/dev/null <<'SQL'
+CREATE ROLE openrate_app LOGIN PASSWORD :'pw' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+SQL
   log "  role openrate_app criada"
 fi
 # schema (dono = owner) + search_path + grants (idempotente)
