@@ -84,6 +84,7 @@ if role_exists openrate_app; then log "  role openrate_app ok"; else
 fi
 # schema (dono = owner) + search_path + grants (idempotente)
 psql_su -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+GRANT CONNECT ON DATABASE postgres TO openrate_owner, openrate_app;
 CREATE SCHEMA IF NOT EXISTS openrate AUTHORIZATION openrate_owner;
 ALTER ROLE openrate_owner SET search_path = openrate, extensions;
 ALTER ROLE openrate_app   SET search_path = openrate, extensions;
