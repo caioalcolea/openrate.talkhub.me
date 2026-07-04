@@ -217,8 +217,12 @@ log "  imagens buildadas (tags latest + $SHA)"
 
 # ---------------------------------------------------------------- 7. deploy
 log "7/8 Deploy da stack $STACK"
+# Referencia as imagens pela TAG do SHA (não :latest). Com :latest o Swarm não
+# detecta que a imagem local mudou (sem registry p/ comparar digest) e mantém a
+# imagem ANTIGA rodando. A tag única do SHA força o roll para a imagem recém-buildada.
+export OPENRATE_IMAGE_TAG="$SHA"
 docker stack deploy --detach=true -c deploy/openrate.yaml "$STACK"
-log "  stack $STACK enviada"
+log "  stack $STACK enviada (imagens :$SHA)"
 
 # ---------------------------------------------------------------- 8. smoke
 log "8/8 Aguardando serviços ficarem 1/1..."

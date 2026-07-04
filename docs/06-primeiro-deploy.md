@@ -135,9 +135,13 @@ docker service logs -f openrate_openrate_api
 > ```bash
 > cd <raiz-do-repo>
 > set -a; . deploy/.env; set +a
+> export OPENRATE_IMAGE_TAG="$(git rev-parse --short HEAD)"   # rola p/ a imagem recém-buildada
 > docker stack deploy -c deploy/openrate.yaml openrate
 > ```
-> (O `first-up.sh` já faz isso — prefira ele.)
+> (O `first-up.sh` já faz isso — prefira ele.) Sem `OPENRATE_IMAGE_TAG` o compose
+> usa `:latest`, e o Swarm NÃO detecta imagem local nova (sem registry p/ digest) —
+> mantém a imagem antiga rodando. Para rolar um serviço específico à mão:
+> `docker service update --image talkhub/openrate-api:<sha> openrate_openrate_api`.
 
 ### Alternativa: deploy pela UI do Portainer
 

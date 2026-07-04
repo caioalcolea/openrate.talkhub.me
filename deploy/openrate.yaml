@@ -46,7 +46,7 @@ services:
 ## --------------------------- ORION --------------------------- ##
 
   openrate_api:
-    image: talkhub/openrate-api:latest ## API NestJS (build local no servidor)
+    image: talkhub/openrate-api:${OPENRATE_IMAGE_TAG:-latest} ## API NestJS (build local no servidor)
     networks:
       - talkhub ## Nome da rede interna
     environment:
@@ -112,7 +112,7 @@ services:
 ## --------------------------- ORION --------------------------- ##
 
   openrate_worker:
-    image: talkhub/openrate-worker:latest ## Worker BullMQ + FFmpeg + whisper-ctranslate2 (build local no servidor)
+    image: talkhub/openrate-worker:${OPENRATE_IMAGE_TAG:-latest} ## Worker BullMQ + FFmpeg + whisper-ctranslate2 (build local no servidor)
     networks:
       - talkhub ## Nome da rede interna
     environment:
@@ -176,7 +176,7 @@ services:
 ## --------------------------- ORION --------------------------- ##
 
   openrate_web:
-    image: talkhub/openrate-web:latest ## Painel admin + PWA do atendente (Next.js, build local no servidor)
+    image: talkhub/openrate-web:${OPENRATE_IMAGE_TAG:-latest} ## Painel admin + PWA do atendente (Next.js, build local no servidor)
     networks:
       - talkhub ## Nome da rede interna
     environment:
@@ -215,7 +215,7 @@ services:
 ## --------------------------- ORION --------------------------- ##
 
   openrate_bullboard:
-    image: talkhub/openrate-bullboard:latest ## Bull Board standalone (imagem própria mínima: express + @bull-board)
+    image: talkhub/openrate-bullboard:${OPENRATE_IMAGE_TAG:-latest} ## Bull Board standalone (imagem própria mínima: express + @bull-board)
     networks:
       - talkhub ## Nome da rede interna
     environment:
