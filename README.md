@@ -10,7 +10,7 @@ Plataforma SaaS multi-tenant que transforma atendentes de lojas físicas em crea
 
 ## Como este repositório está organizado
 
-O repositório contém a **especificação, a análise crítica, a arquitetura, a modelagem de dados, o plano de execução** e o **código das aplicações (Sprints 0-4)**: `apps/api` (NestJS), `apps/worker` (BullMQ + FFmpeg + faster-whisper), `apps/web` (Next.js — painel + PWA do atendente), `apps/bullboard`, e `packages/shared` (contratos). Build e testes verdes; MVP (0-3) e a fase Dinheiro parte 1 (Sprint 4: links de afiliado, importação de vendas, motor de comissão) validados por smoke test E2E. Sprint 5+ (fechamento, payout Asaas, integrações) seguem o backlog de `docs/04-sprints.md`.
+O repositório contém a **especificação, a análise crítica, a arquitetura, a modelagem de dados, o plano de execução** e o **código das aplicações (Sprints 0-5)**: `apps/api` (NestJS), `apps/worker` (BullMQ + FFmpeg + faster-whisper), `apps/web` (Next.js — painel + PWA do atendente), `apps/bullboard`, e `packages/shared` (contratos). Build e testes verdes; **MVP (Sprints 0-3) e fase Dinheiro completa (Sprints 4-5: links de afiliado, importação de vendas, motor de comissão, fechamento de período, payouts e dashboards)** validados por smoke test E2E. Fase Escala (payout automático Asaas, Olist, metrics-sync, conectores) segue o backlog de `docs/04-sprints.md`.
 
 | Documento | O que contém |
 |---|---|

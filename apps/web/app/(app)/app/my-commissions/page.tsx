@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api } from '../../../../lib/api';
 import { useAuth } from '../../../../lib/auth';
 
@@ -10,6 +11,10 @@ interface Entry {
   amount: string;
   status: string;
   payable_at: string | null;
+}
+interface Earnings {
+  rank: number | null;
+  approvedVideos: number;
 }
 
 const STATUS: Record<string, string> = {
@@ -23,9 +28,11 @@ const STATUS: Record<string, string> = {
 export default function MyCommissions() {
   const { me } = useAuth();
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [earnings, setEarnings] = useState<Earnings | null>(null);
 
   useEffect(() => {
     void api<Entry[]>('/v1/commission-entries').then(setEntries).catch(() => setEntries([]));
+    void api<Earnings>('/v1/me/earnings').then(setEarnings).catch(() => setEarnings(null));
   }, []);
 
   // Mostra só as comissões do próprio creator.
@@ -40,6 +47,14 @@ export default function MyCommissions() {
       <div className="card">
         <p className="text-sm text-neutral-500">Total (não estornado)</p>
         <p className="text-2xl font-bold text-brand">R$ {total.toFixed(2)}</p>
+        {earnings && (
+          <p className="mt-1 text-sm text-neutral-500">
+            {earnings.rank ? `Ranking: #${earnings.rank}` : 'Sem ranking ainda'} · {earnings.approvedVideos} vídeos aprovados
+          </p>
+        )}
+        <Link href="/app/pix" className="mt-2 inline-block text-sm text-brand">
+          Configurar chave Pix →
+        </Link>
       </div>
       {mine.map((e) => (
         <div key={e.id} className="card text-sm">

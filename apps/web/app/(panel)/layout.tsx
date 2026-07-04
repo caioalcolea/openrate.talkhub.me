@@ -25,6 +25,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           <Link href="/videos">Vídeos</Link>
           <Link href="/sales">Vendas</Link>
           <Link href="/commissions">Comissões</Link>
+          <Link href="/payouts">Pagamentos</Link>
           <Link href="/goals">Metas</Link>
           {isSuper && <Link href="/orgs">Organizações</Link>}
         </nav>

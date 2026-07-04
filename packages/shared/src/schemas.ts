@@ -169,3 +169,25 @@ export type SimulateCommissionInput = z.infer<typeof simulateCommissionSchema>;
 
 // Carência padrão até a comissão ficar pagável (dias). Override por org.settings.
 export const DEFAULT_PAYOUT_GRACE_DAYS = 30;
+
+// --- Sprint 5: fechamento, payout e chave Pix ---
+
+// Fechamento de período: consolida comissões due em payouts por creator.
+export const closeSettlementSchema = z.object({
+  period: z.string().regex(/^\d{4}-\d{2}$/), // YYYY-MM
+});
+export type CloseSettlementInput = z.infer<typeof closeSettlementSchema>;
+
+// Registro do pagamento manual (Pix feito fora do sistema, registrado dentro).
+export const payPayoutSchema = z.object({
+  proof: z.string().max(500).optional(), // comprovante/observação
+});
+export type PayPayoutInput = z.infer<typeof payPayoutSchema>;
+
+// Cadastro/edição da própria chave Pix (dado sensível do recebedor).
+export const updatePixSchema = z.object({
+  pixKey: z.string().min(1).max(140),
+  pixKeyType: z.enum(['cpf', 'cnpj', 'email', 'phone', 'random']),
+  cpf: z.string().max(14).optional(),
+});
+export type UpdatePixInput = z.infer<typeof updatePixSchema>;

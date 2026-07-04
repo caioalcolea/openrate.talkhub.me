@@ -7,6 +7,7 @@ import {
   type AiScriptGenerationJob,
   type VideoProcessingJob,
   type NotificationJob,
+  type CommissionSettlementJob,
 } from '@openrate/shared';
 import { redisConnection } from './common/env';
 
@@ -43,6 +44,17 @@ export class QueuesService implements OnModuleDestroy {
       attempts: opts.attempts,
       backoff: opts.backoffMs ? { type: 'exponential', delay: opts.backoffMs } : undefined,
       removeOnComplete: { count: 500 },
+      removeOnFail: false,
+    });
+  }
+
+  async enqueueCommissionSettlement(job: CommissionSettlementJob): Promise<void> {
+    const opts = QUEUE_JOB_OPTIONS[QUEUES.commissionSettlement];
+    await this.get(QUEUES.commissionSettlement).add('settle', job, {
+      jobId: jobIds.commissionSettlement(job.orgId, job.period),
+      attempts: opts.attempts,
+      backoff: opts.backoffMs ? { type: 'exponential', delay: opts.backoffMs } : undefined,
+      removeOnComplete: { count: 200 },
       removeOnFail: false,
     });
   }

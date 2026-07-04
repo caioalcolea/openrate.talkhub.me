@@ -137,13 +137,16 @@ export async function ingestConfirmedSale(
   return { saleId, duplicated: false, ruleId: rule.id, entries };
 }
 
-// Estorno: espelha cada lançamento vivo da venda com valor negativo (razão
-// append-only — nunca UPDATE/DELETE do original) e marca a venda cancelada.
+// Estorno: para cada lançamento AINDA NÃO PAGO/liquidado, insere um espelho
+// negativo (razão append-only, para auditoria) E cancela o original — assim o
+// fechamento varre apenas lançamentos ativos e nunca paga uma comissão
+// estornada. Lançamentos já 'settled'/'paid' exigem clawback manual (fora do MVP).
 export async function reverseSale(client: PoolClient, saleId: string, orgId: string): Promise<number> {
   const entries = await client.query(
     `SELECT id, beneficiary_type, user_id, store_id, percentage, base_amount, amount, commission_rule_id
        FROM openrate.commission_entries
-      WHERE affiliate_sale_id = $1 AND reversal_of IS NULL AND amount > 0`,
+      WHERE affiliate_sale_id = $1 AND reversal_of IS NULL AND amount > 0
+        AND status IN ('pending','payable')`,
     [saleId],
   );
   let reversed = 0;
@@ -153,19 +156,10 @@ export async function reverseSale(client: PoolClient, saleId: string, orgId: str
          (organization_id, affiliate_sale_id, commission_rule_id, beneficiary_type,
           user_id, store_id, percentage, base_amount, amount, status, reversal_of)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'cancelled',$10)`,
-      [
-        orgId,
-        saleId,
-        e.commission_rule_id,
-        e.beneficiary_type,
-        e.user_id,
-        e.store_id,
-        e.percentage,
-        e.base_amount,
-        -Number(e.amount),
-        e.id,
-      ],
+      [orgId, saleId, e.commission_rule_id, e.beneficiary_type, e.user_id, e.store_id, e.percentage, e.base_amount, -Number(e.amount), e.id],
     );
+    // cancela o original para removê-lo de qualquer fechamento futuro
+    await client.query(`UPDATE openrate.commission_entries SET status = 'cancelled' WHERE id = $1`, [e.id]);
     reversed++;
   }
   await client.query(

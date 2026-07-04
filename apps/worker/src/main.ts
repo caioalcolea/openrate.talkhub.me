@@ -6,11 +6,8 @@ import { pool } from './lib/pg';
 import { processAiScript } from './processors/ai-script-generation';
 import { processVideo } from './processors/video-processing';
 import { processNotification } from './processors/notifications';
-import {
-  processMetricsSync,
-  processCommissionSettlement,
-  processPayoutPix,
-} from './processors/stubs';
+import { processCommissionSettlement } from './processors/settlement';
+import { processMetricsSync, processPayoutPix } from './processors/stubs';
 
 // Concorrência efetiva: env CONCURRENCY_* sobrepõe os defaults do shared.
 function concurrency(queue: QueueName): number {

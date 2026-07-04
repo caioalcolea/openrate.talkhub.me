@@ -3,14 +3,16 @@ import {
   Controller,
   Get,
   Module,
+  Patch,
   Post,
   UnauthorizedException,
 } from '@nestjs/common';
 import axios from 'axios';
 import { CurrentTenant, Public } from '../common/tenant';
 import { PgService } from '../common/pg.service';
+import { ZodValidationPipe } from '../common/zod.pipe';
 import { env } from '../common/env';
-import type { TenantContext } from '@openrate/shared';
+import { updatePixSchema, type UpdatePixInput, type TenantContext } from '@openrate/shared';
 
 interface LoginDto {
   email?: string;
@@ -82,6 +84,23 @@ class MeController {
         role: t.role,
       };
     });
+  }
+
+  // O próprio usuário cadastra/edita sua chave Pix (dado sensível do recebedor).
+  @Patch('me/pix')
+  updatePix(
+    @CurrentTenant() t: TenantContext,
+    @Body(new ZodValidationPipe(updatePixSchema)) dto: UpdatePixInput,
+  ) {
+    return this.pg.withTenant(t, (c) =>
+      c
+        .query(
+          `UPDATE openrate.users SET pix_key = $2, pix_key_type = $3, cpf = COALESCE($4, cpf)
+             WHERE id = $1 RETURNING id, pix_key, pix_key_type`,
+          [t.userId, dto.pixKey, dto.pixKeyType, dto.cpf ?? null],
+        )
+        .then((r) => r.rows[0] ?? null),
+    );
   }
 }
 
