@@ -80,30 +80,28 @@ Isto aplica `db/migrations/0001_init.sql` no Postgres **real** de produção e �
 CID=$(docker ps -q -f name='^supabase_db\.')
 docker ps --format '{{.Names}}' -f name='^supabase_db\.'   # deve listar exatamente 1
 
-# criar as roles (owner p/ migração + app p/ runtime) e o schema — como postgres
+# criar as roles (owner p/ migração + app p/ runtime) e o schema.
+# ATENÇÃO: no supabase_db o "postgres" NÃO é superuser (é CREATEROLE). Para criar
+# o schema com AUTHORIZATION openrate_owner — e depois SET ROLE openrate_owner —
+# ele precisa ser MEMBRO da role: GRANT openrate_owner TO CURRENT_USER.
 docker exec -i "$CID" psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
 CREATE ROLE openrate_owner LOGIN PASSWORD 'TROQUE_SENHA_OWNER'
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION CONNECTION LIMIT 3;
 CREATE ROLE openrate_app LOGIN PASSWORD 'TROQUE_SENHA_APP'
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 20;
+GRANT openrate_owner TO CURRENT_USER;
 CREATE SCHEMA IF NOT EXISTS openrate AUTHORIZATION openrate_owner;
 ALTER ROLE openrate_owner SET search_path = openrate;
 ALTER ROLE openrate_app   SET search_path = openrate;
 REVOKE CREATE ON SCHEMA public FROM openrate_app;
-REVOKE CREATE ON SCHEMA public FROM openrate_owner;
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM openrate_app;
 SQL
 
-# 0001 (como owner) — corta o bloco -- migrate:down; ^ ancora no marcador real
-sed '/^-- migrate:down/,$d' db/migrations/0001_init.sql > /tmp/0001_up.sql
-docker cp /tmp/0001_up.sql "$CID":/tmp/0001_up.sql
-docker exec -i "$CID" psql -U openrate_owner -d postgres -v ON_ERROR_STOP=1 --single-transaction -f /tmp/0001_up.sql
-docker exec -i "$CID" rm /tmp/0001_up.sql
-
-# 0002 e 0003 (como postgres) — a função SECURITY DEFINER e o seed org-null
-# exigem superuser. NÃO aplicar via dbmate/owner.
-for m in 0002_affiliate_link_resolver 0003_seed_video_types; do
-  sed '/^-- migrate:down/,$d' "db/migrations/$m.sql" \
+# 0001/0002/0003 (todas como openrate_owner via SET ROLE) — corta o bloco
+# -- migrate:down; ^ ancora no marcador real. Sem superuser no supabase_db, é o
+# DONO quem contorna o RLS: a 0002 usa uma policy só-para-o-owner e a 0003
+# suspende o FORCE só durante o seed org-null e o restaura.
+for m in 0001_init 0002_affiliate_link_resolver 0003_seed_video_types; do
+  { echo "SET ROLE openrate_owner;"; sed '/^-- migrate:down/,$d' "db/migrations/$m.sql"; echo "RESET ROLE;"; } \
     | docker exec -i "$CID" psql -U postgres -d postgres -v ON_ERROR_STOP=1 --single-transaction -f -
 done
 ```

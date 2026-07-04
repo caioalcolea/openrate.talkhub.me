@@ -24,6 +24,13 @@ export const env = {
 
   // URL pública da própria API (base dos links de afiliado /r/:code).
   apiPublicUrl: process.env.API_PUBLIC_URL ?? 'https://openrate-api.talkhub.me',
+
+  // Origens permitidas no CORS (o PWA/painel). Em produção NÃO refletimos qualquer
+  // origem com credentials — só as conhecidas. WEB_ORIGIN aceita lista por vírgula.
+  corsOrigins: (process.env.WEB_ORIGIN ?? 'https://openrate.talkhub.me')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
 };
 
 const DEFAULT_JWT_SECRET = 'dev-super-secret-hs256-change-me';
