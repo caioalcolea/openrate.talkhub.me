@@ -113,9 +113,12 @@ docker exec -i "$CID" psql -U openrate_owner -d postgres -v ON_ERROR_STOP=1 --si
 docker exec -i "$CID" rm /tmp/0001_up.sql
 ```
 
-(Se preferir rodar como `postgres`, também funciona — os objetos ficam com
-owner `postgres`, que é superuser e bypassa RLS de todo modo. O que **não**
-pode é aplicar migrations como `openrate_app`.)
+(No `supabase_db` o papel `postgres` **NÃO é superuser** — ele é `CREATEROLE`.
+Por isso as migrations rodam como `openrate_owner` (dono do schema). Para o
+`postgres` conseguir `CREATE SCHEMA ... AUTHORIZATION openrate_owner` e depois
+`SET ROLE openrate_owner`, ele precisa ser membro da role — o `first-up.sh`
+concede isso com `GRANT openrate_owner TO CURRENT_USER`. O que **não** pode é
+aplicar migrations como `openrate_app`.)
 
 Alternativa com dbmate (versionamento contínuo das migrations), rodando na
 própria rede `talkhub`. Atenção: conectar como `openrate_owner` (NUNCA
@@ -129,21 +132,24 @@ docker run --rm --network talkhub -v "$PWD/db:/db" ghcr.io/amacneil/dbmate:2 \
   --migrations-table openrate.schema_migrations up
 ```
 
-3.3.1. Aplicar `0002` e `0003` **como `postgres`** (superuser). A `0002` cria a
-função `SECURITY DEFINER` do redirect (precisa ser dona de um superuser p/
-contornar o FORCE RLS) e a `0003` semeia `video_types` globais (org NULL, que o
-RLS bloqueia p/ não-superuser). **O caminho dbmate acima NÃO serve p/ estas
-duas** — rode via psql como postgres:
+3.3.1. Aplicar `0002` e `0003` **como `openrate_owner`** (dono do schema/tabelas).
+Como o `postgres` do supabase_db não é superuser, é o próprio dono quem contorna
+o FORCE RLS de forma controlada: a `0002` cria uma policy só-para-o-owner em
+`affiliate_links` (a função `SECURITY DEFINER` roda como o owner) e a `0003`
+suspende o FORCE só durante o seed de `video_types` globais (org NULL) e o
+restaura. **O caminho dbmate acima NÃO serve p/ estas duas** — rode via psql
+fazendo `SET ROLE openrate_owner` (o `postgres` precisa ser membro da role, o
+que o passo 3.3 já garantiu com `GRANT openrate_owner TO CURRENT_USER`):
 
 ```bash
 for m in 0002_affiliate_link_resolver 0003_seed_video_types; do
-  sed '/^-- migrate:down/,$d' "db/migrations/$m.sql" \
+  { echo "SET ROLE openrate_owner;"; sed '/^-- migrate:down/,$d' "db/migrations/$m.sql"; echo "RESET ROLE;"; } \
     | docker exec -i "$CID" psql -U postgres -d postgres -v ON_ERROR_STOP=1 --single-transaction -f -
 done
 ```
 
-> Atalho: `deploy/first-up.sh` já faz os passos 2–7 (roles, schema, 0001 como
-> owner, 0002/0003 como postgres, bucket, build, deploy) de forma idempotente.
+> Atalho: `deploy/first-up.sh` já faz os passos 2–7 (roles, schema, 0001/0002/0003
+> como owner, bucket, build, deploy) de forma idempotente.
 
 3.4. Smoke test da role (deve conectar e enxergar o schema `openrate`):
 

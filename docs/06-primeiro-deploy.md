@@ -111,8 +111,9 @@ O script é **idempotente** (pode rodar de novo com segurança) e faz, em ordem:
 2. Confere DNS (só avisa).
 3. Cria o volume `openrate_redis_data`.
 4. **Postgres**: cria as roles `openrate_owner`/`openrate_app`, o schema
-   `openrate` e aplica as migrations — `0001` como owner, `0002`/`0003` como
-   postgres (a função SECURITY DEFINER e os seeds exigem superuser).
+   `openrate` e aplica as migrations `0001`/`0002`/`0003` **como `openrate_owner`**
+   (no supabase_db o `postgres` não é superuser; o script o torna membro de
+   `openrate_owner` com `GRANT openrate_owner TO CURRENT_USER` e usa `SET ROLE`).
 5. **MinIO**: cria o bucket `openrate-media`, a lifecycle de 30 dias em `raw/`,
    o usuário dedicado e a policy restrita.
 6. **Build** das 4 imagens `talkhub/openrate-*` (tags `latest` + SHA do git).
@@ -149,9 +150,12 @@ O banco sobe **vazio**. Para criar o primeiro acesso:
      -d '{"email":"admin@talkhub.me","password":"UMA_SENHA","email_confirm":true,
           "app_metadata":{"product":"openrate","role":"super_admin"}}'
    ```
-   Depois espelhe em `openrate.users` (via psql como postgres) OU faça login e
-   crie a org — o fluxo de convite (`/v1/users/invite`) já cria o espelho dos
-   demais usuários.
+   Depois **faça login** em `https://openrate.talkhub.me` e crie a organização —
+   a API espelha o `super_admin` em `openrate.users` nesse fluxo (a policy
+   `super_admin_all` autoriza pelo claim do JWT). Um insert manual via psql só
+   funcionaria como `openrate_owner` com `SET ROLE` (o `postgres` do supabase_db
+   não é superuser e cai no RLS) — prefira o fluxo pela aplicação. O convite
+   (`/v1/users/invite`) já cria o espelho dos demais usuários.
 2. **Login** em `https://openrate.talkhub.me` → criar organização (super_admin)
    → criar lojas → convidar `owner`/`manager`/`attendant` (a API grava o
    `app_metadata` no gotrue e o espelho em `openrate.users`).

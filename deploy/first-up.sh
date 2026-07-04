@@ -88,30 +88,50 @@ SQL
   log "  role openrate_app criada"
 fi
 # schema (dono = owner) + search_path + grants (idempotente)
+# NOTA: no supabase_db o "postgres" NÃO é superuser (é CREATEROLE). Para criar o
+# schema com AUTHORIZATION openrate_owner — e depois SET ROLE openrate_owner — ele
+# precisa ser MEMBRO da role. Com CREATEROLE ele pode conceder a si mesmo.
 psql_su -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 GRANT CONNECT ON DATABASE postgres TO openrate_owner, openrate_app;
+GRANT openrate_owner TO CURRENT_USER;
 CREATE SCHEMA IF NOT EXISTS openrate AUTHORIZATION openrate_owner;
 ALTER ROLE openrate_owner SET search_path = openrate, extensions;
 ALTER ROLE openrate_app   SET search_path = openrate, extensions;
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname='extensions') THEN
-    EXECUTE 'GRANT USAGE ON SCHEMA extensions TO openrate_owner, openrate_app';
+    BEGIN
+      -- não-fatal: se "postgres" não for dono do schema extensions o Supabase
+      -- em geral já concede USAGE às roles; não abortamos o deploy por isso.
+      EXECUTE 'GRANT USAGE ON SCHEMA extensions TO openrate_owner, openrate_app';
+    EXCEPTION WHEN insufficient_privilege THEN
+      RAISE NOTICE 'sem privilegio p/ GRANT USAGE em extensions; seguindo (Supabase costuma conceder por padrao).';
+    END;
   END IF;
 END $$;
 REVOKE CREATE ON SCHEMA public FROM openrate_app;
 SQL
 
-if [ -z "$(psql_su -tAc "SELECT to_regclass('openrate.organizations')")" ]; then
+if [ -z "$(psql_su -tAc "SET ROLE openrate_owner; SELECT to_regclass('openrate.organizations')" | tail -1)" ]; then
   log "  aplicando 0001_init.sql (como openrate_owner)"
   { echo "SET ROLE openrate_owner;"; sed '/^-- migrate:down/,$d' db/migrations/0001_init.sql; echo "RESET ROLE;"; } \
     | psql_su -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
 else
   log "  schema openrate já migrado (0001) — pulando"
 fi
-log "  aplicando 0002 (resolver de link) e 0003 (seed video_types) como postgres"
-sed '/^-- migrate:down/,$d' db/migrations/0002_affiliate_link_resolver.sql | psql_su -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
-sed '/^-- migrate:down/,$d' db/migrations/0003_seed_video_types.sql        | psql_su -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
-log "  banco: $(psql_su -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='openrate' AND table_type='BASE TABLE'") tabelas, $(psql_su -tAc "SELECT count(*) FROM openrate.video_types WHERE organization_id IS NULL") tipos de vídeo"
+# 0002/0003 rodam como openrate_owner (dono do schema/tabelas). Sem superuser no
+# supabase_db, é o owner quem contorna o RLS de forma controlada: a 0002 cria uma
+# policy só-para-o-owner na affiliate_links (a função SECURITY DEFINER roda como
+# o owner) e a 0003 suspende o FORCE só durante o seed org-null e o restaura.
+log "  aplicando 0002 (resolver de link) e 0003 (seed video_types) como openrate_owner"
+{ echo "SET ROLE openrate_owner;"; sed '/^-- migrate:down/,$d' db/migrations/0002_affiliate_link_resolver.sql; echo "RESET ROLE;"; } \
+  | psql_su -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
+{ echo "SET ROLE openrate_owner;"; sed '/^-- migrate:down/,$d' db/migrations/0003_seed_video_types.sql; echo "RESET ROLE;"; } \
+  | psql_su -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
+# A contagem de video_types roda sob RLS (postgres não é dono nem tem BYPASSRLS);
+# usamos um claim super_admin efêmero p/ a policy super_admin_all liberar a leitura,
+# senão o log mostraria 0 mesmo com o seed aplicado.
+_vt="$(psql_su -tAc "SELECT set_config('request.jwt.claims','{\"app_metadata\":{\"role\":\"super_admin\"}}',false); SELECT count(*) FROM openrate.video_types WHERE organization_id IS NULL" | tail -1 | tr -d '[:space:]')"
+log "  banco: $(psql_su -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='openrate' AND table_type='BASE TABLE'") tabelas, ${_vt:-?} tipos de vídeo"
 
 # ---------------------------------------------------------------- 5. MinIO
 log "5/8 MinIO (bucket + lifecycle + usuário + policy)"
