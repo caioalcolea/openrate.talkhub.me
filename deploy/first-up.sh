@@ -140,12 +140,23 @@ log "  banco: $(psql_owner -tAc "SELECT count(*) FROM information_schema.tables 
 
 # ---------------------------------------------------------------- 5. MinIO
 log "5/8 MinIO (bucket + lifecycle + usuário + policy)"
+# quay.io/minio/mc é o CLIENTE (CLI descartável, como o psql) — só CONFIGURA o
+# MinIO JÁ EXISTENTE; NENHUM servidor MinIO novo é criado. O mc (minio-go) REJEITA
+# hostnames com "_" (ex.: minio_minio) como "invalid hostname", embora o DNS do
+# Docker e o app resolvam. Por isso resolvemos o IP do minio na rede talkhub e o
+# passamos ao mc (IP não tem esse problema e mantém o tráfego interno na overlay).
+MINIO_CTR="$(find_ctr minio_minio)"
+[ -n "$MINIO_CTR" ] || die "container do MinIO (minio_minio) não encontrado — a stack minio está rodando?"
+MINIO_IP="$(docker inspect "$MINIO_CTR" --format '{{ (index .NetworkSettings.Networks "talkhub").IPAddress }}' 2>/dev/null)"
+[ -n "$MINIO_IP" ] || die "não consegui obter o IP do minio na rede talkhub."
+log "  usando MinIO existente em http://$MINIO_IP:9000 (via IP; mc não aceita host com \"_\")"
 docker run --rm --network talkhub \
+  -e MINIO_ENDPOINT="http://$MINIO_IP:9000" \
   -e RUSER="$MINIO_ROOT_USER" -e RPASS="$MINIO_ROOT_PASSWORD" \
   -e ACCESS="$S3_ACCESS_KEY" -e SECRET="$S3_SECRET_KEY" \
   --entrypoint /bin/sh quay.io/minio/mc -c '
     set -e
-    mc alias set t http://minio_minio:9000 "$RUSER" "$RPASS"
+    mc alias set t "$MINIO_ENDPOINT" "$RUSER" "$RPASS"
     mc mb --ignore-existing t/openrate-media
     mc anonymous set none t/openrate-media
     ( mc ilm rule add t/openrate-media --expire-days 30 --prefix "raw/" \
