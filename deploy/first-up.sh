@@ -208,11 +208,13 @@ JSON
 # ---------------------------------------------------------------- 6. build
 log "6/8 Build das imagens (contexto = raiz do monorepo)"
 SHA="$(git rev-parse --short HEAD 2>/dev/null || echo latest)"
-docker build -t talkhub/openrate-api:latest       -t "talkhub/openrate-api:$SHA"       -f apps/api/Dockerfile .
-docker build -t talkhub/openrate-worker:latest    -t "talkhub/openrate-worker:$SHA"    -f apps/worker/Dockerfile .
-docker build -t talkhub/openrate-web:latest       -t "talkhub/openrate-web:$SHA"       -f apps/web/Dockerfile \
+# NO_CACHE=1 (usado pelo redeploy.sh) força rebuild sem cache das imagens do OpenRate.
+NOCACHE=""; [ "${NO_CACHE:-}" = "1" ] && { NOCACHE="--no-cache"; log "  (rebuild SEM cache)"; }
+docker build $NOCACHE -t talkhub/openrate-api:latest       -t "talkhub/openrate-api:$SHA"       -f apps/api/Dockerfile .
+docker build $NOCACHE -t talkhub/openrate-worker:latest    -t "talkhub/openrate-worker:$SHA"    -f apps/worker/Dockerfile .
+docker build $NOCACHE -t talkhub/openrate-web:latest       -t "talkhub/openrate-web:$SHA"       -f apps/web/Dockerfile \
   --build-arg NEXT_PUBLIC_API_URL="https://openrate-api.$DOMAIN" .
-docker build -t talkhub/openrate-bullboard:latest -t "talkhub/openrate-bullboard:$SHA" -f apps/bullboard/Dockerfile .
+docker build $NOCACHE -t talkhub/openrate-bullboard:latest -t "talkhub/openrate-bullboard:$SHA" -f apps/bullboard/Dockerfile .
 log "  imagens buildadas (tags latest + $SHA)"
 
 # ---------------------------------------------------------------- 7. deploy
