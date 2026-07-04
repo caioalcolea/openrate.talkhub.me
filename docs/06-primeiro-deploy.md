@@ -127,6 +127,18 @@ docker service ls | grep openrate
 docker service logs -f openrate_openrate_api
 ```
 
+> ⚠️ **Rodou `docker stack deploy` na mão (fora do `first-up.sh`)?** O
+> `docker stack deploy` interpola os `${VAR}` a partir do ambiente do SHELL, NÃO
+> lê o `deploy/.env` sozinho. Sem carregar o `.env` antes, TODOS os `${VAR}` viram
+> string vazia — o Redis sobe com `--requirepass` vazio (erro fatal de config,
+> 0/1) e a API aborta por segredos ausentes. Sempre carregue o env primeiro:
+> ```bash
+> cd <raiz-do-repo>
+> set -a; . deploy/.env; set +a
+> docker stack deploy -c deploy/openrate.yaml openrate
+> ```
+> (O `first-up.sh` já faz isso — prefira ele.)
+
 ### Alternativa: deploy pela UI do Portainer
 
 Se preferir a UI (em vez do `docker stack deploy` do script), rode o `first-up.sh`
