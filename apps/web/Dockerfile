@@ -16,7 +16,12 @@ COPY apps/web apps/web
 RUN pnpm --filter @openrate/shared build && pnpm --filter @openrate/web build
 
 FROM node:20-alpine AS runtime
-ENV NODE_ENV=production TZ=America/Sao_Paulo PORT=3000
+# HOSTNAME=0.0.0.0 é OBRIGATÓRIO: o server.js do Next standalone faz
+# listen(PORT, process.env.HOSTNAME||'0.0.0.0'); o Swarm injeta HOSTNAME=<id-do-container>,
+# que resolve só para o IP de overlay do container — o Node passaria a escutar
+# apenas nesse IP e o healthcheck em 127.0.0.1:3000 daria ECONNREFUSED, deixando o
+# serviço eternamente unhealthy (restart-loop + Traefik tira do LB → site fora).
+ENV NODE_ENV=production TZ=America/Sao_Paulo PORT=3000 HOSTNAME=0.0.0.0
 WORKDIR /app
 # Next standalone: inclui só o necessário para rodar.
 COPY --from=build /repo/apps/web/.next/standalone ./

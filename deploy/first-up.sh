@@ -44,6 +44,11 @@ set -a; . "$ENV_FILE"; set +a
 : "${S3_ACCESS_KEY:?}"; : "${S3_SECRET_KEY:?}"
 : "${MINIO_ROOT_USER:?defina em .env}"; : "${MINIO_ROOT_PASSWORD:?defina em .env}"
 : "${SUPABASE_JWT_SECRET:?}"; : "${BULLBOARD_BASICAUTH:?}"
+# Sem estes a stack sobe 5/5 e o /health passa, mas login/convite/provisionamento
+# de usuário ficam MORTOS (auth via gotrue). Exige antes de subir.
+: "${SUPABASE_URL:?defina em .env}"
+: "${SUPABASE_ANON_KEY:?defina em .env}"
+: "${SUPABASE_SERVICE_ROLE_KEY:?defina em .env}"
 # As senhas de DB/Redis entram CRUAS em DATABASE_URL/REDIS_URL (URI) no openrate.yaml.
 # Um char reservado de URI (@ : / ? # % espaço…) reparseia host/porta e quebra a conexão
 # de TODOS os apps silenciosamente — a role é criada, o script passa verde, mas os

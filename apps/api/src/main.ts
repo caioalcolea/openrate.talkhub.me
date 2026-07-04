@@ -18,7 +18,12 @@ async function bootstrap(): Promise<void> {
     next();
   });
 
-  app.enableCors({ origin: true, credentials: true });
+  // Em produção, allowlist de origens (evita reflect-any-origin + credentials);
+  // em dev, reflete p/ facilitar localhost.
+  app.enableCors({
+    origin: env.nodeEnv === 'production' ? env.corsOrigins : true,
+    credentials: true,
+  });
   // Prefixo /v1 em tudo, menos o /health (healthcheck do container) e o
   // redirect público de link de afiliado /r/:code (URL curta compartilhável).
   app.setGlobalPrefix('v1', { exclude: ['health', 'r/:code'] });

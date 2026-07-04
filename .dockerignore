@@ -1,0 +1,23 @@
+# Contexto de build = raiz do monorepo (os 4 Dockerfiles). Sem este arquivo, a árvore
+# inteira (node_modules, .next, .turbo, dist) é enviada ao daemon 4x e os `COPY apps/x`
+# / `COPY packages/shared` sobrepõem artefatos do HOST sobre o que o `pnpm install`
+# acabou de produir no estágio de build (binários de outra arch/libc, .next velho).
+# Tudo abaixo é (re)gerado DENTRO da imagem, então nunca deve vir do contexto.
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/*.tsbuildinfo
+**/coverage
+
+# Nunca colocar segredos no contexto de imagem.
+deploy/.env
+**/.env.local
+
+# VCS / logs / cruft de editor e SO
+.git
+.gitignore
+**/*.log
+.DS_Store
+**/.vscode
+**/.idea

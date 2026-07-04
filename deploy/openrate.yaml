@@ -76,6 +76,8 @@ services:
       - DOCUSEAL_WEBHOOK_TOKEN=${DOCUSEAL_WEBHOOK_TOKEN}
     ## 🔑 URL pública da própria API — base dos links de afiliado (/r/:code)
       - API_PUBLIC_URL=https://openrate-api.talkhub.me
+    ## 🔑 Origem(ns) permitida(s) no CORS (o PWA/painel). Lista separada por vírgula.
+      - WEB_ORIGIN=https://openrate.talkhub.me
     ## NOTA: a API só ENFILEIRA jobs — quem chama Anthropic/Asaas/Evolution/
     ##       Browserless é o worker. Por menor-privilégio, esses segredos NÃO
     ##       são injetados aqui (ficam só no openrate_worker).

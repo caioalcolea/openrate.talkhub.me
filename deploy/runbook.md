@@ -82,17 +82,21 @@ CREATE ROLE openrate_app LOGIN PASSWORD 'TROQUE_ESTA_SENHA'
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS
   CONNECTION LIMIT 20;
 
--- Schema dedicado, de propriedade da role de MIGRAÇÃO (nunca da de runtime)
-CREATE SCHEMA IF NOT EXISTS openrate AUTHORIZATION openrate_owner;
+-- Schema dedicado. No supabase_db o "postgres" NÃO é superuser e o supautils
+-- bloqueia `CREATE SCHEMA ... AUTHORIZATION <role>` e `SET ROLE`. Então o schema é
+-- criado pelo postgres (fica dono do schema) e concedemos CREATE/USAGE ao owner,
+-- que cria as TABELAS conectando direto — as tabelas ficam do owner, que é o que
+-- importa p/ o FORCE RLS.
+CREATE SCHEMA IF NOT EXISTS openrate;
+GRANT USAGE, CREATE ON SCHEMA openrate TO openrate_owner;
+GRANT USAGE ON SCHEMA openrate TO openrate_app;
 
 -- search_path fixado no nível das roles (a DATABASE_URL não precisa de parâmetro)
 ALTER ROLE openrate_owner SET search_path = openrate;
 ALTER ROLE openrate_app   SET search_path = openrate;
 
--- Defesa em profundidade: nada de criar objetos fora do schema openrate
+-- Defesa em profundidade: a role de runtime não cria objetos no public
 REVOKE CREATE ON SCHEMA public FROM openrate_app;
-REVOKE CREATE ON SCHEMA public FROM openrate_owner;
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM openrate_app;
 ```
 
 Sair com `\q`.
@@ -107,18 +111,17 @@ psql corte o bloco `down` (senão o `DROP SCHEMA` ao final desfaz tudo). O `sed`
 menções a `-- migrate:down` que aparecem no comentário de cabeçalho do arquivo:
 
 ```bash
-sed '/^-- migrate:down/,$d' db/migrations/0001_init.sql > /tmp/0001_up.sql
-docker cp /tmp/0001_up.sql "$CID":/tmp/0001_up.sql
-docker exec -i "$CID" psql -U openrate_owner -d postgres -v ON_ERROR_STOP=1 --single-transaction -f /tmp/0001_up.sql
-docker exec -i "$CID" rm /tmp/0001_up.sql
+# openrate_owner conecta DIRETO (TCP + senha), sem SET ROLE. Troque a senha.
+sed '/^-- migrate:down/,$d' db/migrations/0001_init.sql \
+  | docker exec -e PGPASSWORD='TROQUE_SENHA_OWNER' -i "$CID" \
+      psql -h 127.0.0.1 -U openrate_owner -d postgres -v ON_ERROR_STOP=1 --single-transaction -f -
 ```
 
-(No `supabase_db` o papel `postgres` **NÃO é superuser** — ele é `CREATEROLE`.
-Por isso as migrations rodam como `openrate_owner` (dono do schema). Para o
-`postgres` conseguir `CREATE SCHEMA ... AUTHORIZATION openrate_owner` e depois
-`SET ROLE openrate_owner`, ele precisa ser membro da role — o `first-up.sh`
-concede isso com `GRANT openrate_owner TO CURRENT_USER`. O que **não** pode é
-aplicar migrations como `openrate_app`.)
+(No `supabase_db` o papel `postgres` **NÃO é superuser** (é `CREATEROLE`) e o
+`supautils` do Supabase ENCERRA a conexão em `SET ROLE` e em `GRANT <role> TO
+postgres`. Por isso NÃO se usa `SET ROLE` nem `CREATE SCHEMA ... AUTHORIZATION`:
+as migrations rodam com `openrate_owner` **conectando direto** — TCP + senha, a
+mesma via do app. O que **não** pode é aplicar migrations como `openrate_app`.)
 
 Alternativa com dbmate (versionamento contínuo das migrations), rodando na
 própria rede `talkhub`. Atenção: conectar como `openrate_owner` (NUNCA
@@ -132,19 +135,17 @@ docker run --rm --network talkhub -v "$PWD/db:/db" ghcr.io/amacneil/dbmate:2 \
   --migrations-table openrate.schema_migrations up
 ```
 
-3.3.1. Aplicar `0002` e `0003` **como `openrate_owner`** (dono do schema/tabelas).
-Como o `postgres` do supabase_db não é superuser, é o próprio dono quem contorna
-o FORCE RLS de forma controlada: a `0002` cria uma policy só-para-o-owner em
+3.3.1. Aplicar `0002` e `0003` **como `openrate_owner` conectando direto** (sem
+`SET ROLE`, que o supautils bloqueia). A `0002` cria uma policy só-para-o-owner em
 `affiliate_links` (a função `SECURITY DEFINER` roda como o owner) e a `0003`
 suspende o FORCE só durante o seed de `video_types` globais (org NULL) e o
-restaura. **O caminho dbmate acima NÃO serve p/ estas duas** — rode via psql
-fazendo `SET ROLE openrate_owner` (o `postgres` precisa ser membro da role, o
-que o passo 3.3 já garantiu com `GRANT openrate_owner TO CURRENT_USER`):
+restaura. **O caminho dbmate acima NÃO serve p/ estas duas**:
 
 ```bash
 for m in 0002_affiliate_link_resolver 0003_seed_video_types; do
-  { echo "SET ROLE openrate_owner;"; sed '/^-- migrate:down/,$d' "db/migrations/$m.sql"; echo "RESET ROLE;"; } \
-    | docker exec -i "$CID" psql -U postgres -d postgres -v ON_ERROR_STOP=1 --single-transaction -f -
+  sed '/^-- migrate:down/,$d' "db/migrations/$m.sql" \
+    | docker exec -e PGPASSWORD='TROQUE_SENHA_OWNER' -i "$CID" \
+        psql -h 127.0.0.1 -U openrate_owner -d postgres -v ON_ERROR_STOP=1 --single-transaction -f -
 done
 ```
 
