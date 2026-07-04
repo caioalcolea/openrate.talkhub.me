@@ -94,12 +94,23 @@ REVOKE CREATE ON SCHEMA public FROM openrate_owner;
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM openrate_app;
 SQL
 
-# aplicar a migration (corta o bloco -- migrate:down; ^ ancora no marcador real)
+# 0001 (como owner) — corta o bloco -- migrate:down; ^ ancora no marcador real
 sed '/^-- migrate:down/,$d' db/migrations/0001_init.sql > /tmp/0001_up.sql
 docker cp /tmp/0001_up.sql "$CID":/tmp/0001_up.sql
 docker exec -i "$CID" psql -U openrate_owner -d postgres -v ON_ERROR_STOP=1 --single-transaction -f /tmp/0001_up.sql
 docker exec -i "$CID" rm /tmp/0001_up.sql
+
+# 0002 e 0003 (como postgres) — a função SECURITY DEFINER e o seed org-null
+# exigem superuser. NÃO aplicar via dbmate/owner.
+for m in 0002_affiliate_link_resolver 0003_seed_video_types; do
+  sed '/^-- migrate:down/,$d' "db/migrations/$m.sql" \
+    | docker exec -i "$CID" psql -U postgres -d postgres -v ON_ERROR_STOP=1 --single-transaction -f -
+done
 ```
+
+> Ou simplesmente rode `bash deploy/first-up.sh` (idempotente) — ele faz tudo
+> isto (roles, schema, 0001 como owner, 0002/0003 como postgres, bucket, build,
+> deploy) automaticamente.
 
 **Validação (o que confirma sucesso):**
 

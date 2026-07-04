@@ -14,9 +14,12 @@ RUN pnpm --filter @openrate/shared build && pnpm --filter @openrate/worker build
   && pnpm --filter @openrate/worker deploy --prod /app
 
 FROM node:20-alpine AS runtime
-# ffmpeg para edição; python3 + faster-whisper para transcrição em CPU.
+# ffmpeg para edição; whisper-ctranslate2 fornece o CLI de transcrição em CPU
+# (usa faster-whisper/CTranslate2 por baixo). É o binário chamado em
+# src/lib/whisper.ts. Alpine precisa de toolchain para os wheels nativos.
 RUN apk add --no-cache ffmpeg python3 py3-pip \
-  && pip3 install --no-cache-dir --break-system-packages faster-whisper
+  && pip3 install --no-cache-dir --break-system-packages whisper-ctranslate2 \
+  && which whisper-ctranslate2
 ENV NODE_ENV=production TZ=America/Sao_Paulo
 WORKDIR /app
 COPY --from=build /app /app

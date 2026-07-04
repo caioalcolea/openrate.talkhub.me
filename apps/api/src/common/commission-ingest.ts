@@ -76,7 +76,7 @@ export async function ingestConfirmedSale(
        (organization_id, store_id, affiliate_link_id, user_id, product_id, platform,
         external_id, status, gross_amount, commissionable_amount, occurred_at, confirmed_at, raw_payload)
      VALUES ($1,$2,$3,$4,$5,$6,$7,'confirmed',$8,$9,$10, now(), $11)
-     ON CONFLICT (platform, external_id) DO NOTHING
+     ON CONFLICT (organization_id, platform, external_id) DO NOTHING
      RETURNING id`,
     [
       p.orgId,

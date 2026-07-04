@@ -3,14 +3,17 @@ import type { PoolClient } from 'pg';
 import type { TenantContext } from '@openrate/shared';
 import { PgService } from '../common/pg.service';
 import { CurrentTenant } from '../common/tenant';
+import { Roles } from '../auth/roles.decorator';
 
 @Controller()
 class DashboardController {
   constructor(private readonly pg: PgService) {}
 
   // Dashboard por papel: manager vê a própria loja; owner/super veem a org toda.
-  // O RLS já isola por org; o filtro de loja é autorização fina da camada de API.
+  // Atendente NÃO acessa (veria agregados/top creators da org). O RLS já isola
+  // por org; o filtro de loja é autorização fina da camada de API.
   @Get('dashboard')
+  @Roles('manager')
   dashboard(@CurrentTenant() t: TenantContext) {
     const storeId = t.role === 'manager' ? t.storeId : null;
     return this.pg.withTenant(t, async (c: PoolClient) => {

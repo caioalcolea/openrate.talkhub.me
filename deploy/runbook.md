@@ -129,6 +129,22 @@ docker run --rm --network talkhub -v "$PWD/db:/db" ghcr.io/amacneil/dbmate:2 \
   --migrations-table openrate.schema_migrations up
 ```
 
+3.3.1. Aplicar `0002` e `0003` **como `postgres`** (superuser). A `0002` cria a
+função `SECURITY DEFINER` do redirect (precisa ser dona de um superuser p/
+contornar o FORCE RLS) e a `0003` semeia `video_types` globais (org NULL, que o
+RLS bloqueia p/ não-superuser). **O caminho dbmate acima NÃO serve p/ estas
+duas** — rode via psql como postgres:
+
+```bash
+for m in 0002_affiliate_link_resolver 0003_seed_video_types; do
+  sed '/^-- migrate:down/,$d' "db/migrations/$m.sql" \
+    | docker exec -i "$CID" psql -U postgres -d postgres -v ON_ERROR_STOP=1 --single-transaction -f -
+done
+```
+
+> Atalho: `deploy/first-up.sh` já faz os passos 2–7 (roles, schema, 0001 como
+> owner, 0002/0003 como postgres, bucket, build, deploy) de forma idempotente.
+
 3.4. Smoke test da role (deve conectar e enxergar o schema `openrate`):
 
 ```bash

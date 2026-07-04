@@ -23,14 +23,16 @@ export interface SaleContext {
   platform: string | null;
 }
 
-// priority espelha o GENERATED da coluna commission_rules.priority.
+// priority espelha EXATAMENTE o GENERATED de commission_rules.priority: cada
+// dimensão só soma seu peso quando presente (inclusive platform). Somar platform
+// incondicionalmente anularia a especificidade de plataforma nos empates.
 export function rulePriority(rule: CommissionRule): number {
   let p = 0;
   if (rule.productId) p += COMMISSION_RULE_WEIGHTS.product;
   if (rule.categoryId) p += COMMISSION_RULE_WEIGHTS.category;
   if (rule.storeId) p += COMMISSION_RULE_WEIGHTS.store;
   if (rule.organizationId) p += COMMISSION_RULE_WEIGHTS.organization;
-  p += COMMISSION_RULE_WEIGHTS.platform; // toda regra vale ao menos como global
+  if (rule.platform) p += COMMISSION_RULE_WEIGHTS.platform;
   return p;
 }
 
@@ -64,13 +66,21 @@ function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-// Rateio de uma venda. A parcela platform absorve o resíduo de centavos para
-// garantir Σ = round2(base * Σpct / 100). Se Σpct < 100, a sobra não é lançada.
+// Rateio de uma venda. Garante Σ parcelas == round2(base * Σpct / 100) e nenhuma
+// parcela negativa: creator e store são arredondados e, se juntos passarem do
+// total (arredondamento em split 50/50 de centavo ímpar), são limitados para
+// caber; a plataforma absorve exatamente o resíduo (>= 0). Se Σpct < 100, a
+// sobra simplesmente não é lançada.
 export function splitCommission(base: number, rule: CommissionRule): CommissionSplit {
-  const creator = round2((base * rule.creatorPct) / 100);
-  const store = round2((base * rule.storePct) / 100);
   const totalPct = rule.creatorPct + rule.storePct + rule.platformPct;
   const total = round2((base * totalPct) / 100);
+
+  let creator = round2((base * rule.creatorPct) / 100);
+  let store = round2((base * rule.storePct) / 100);
+
+  if (creator > total) creator = total;
+  if (creator + store > total) store = round2(total - creator);
   const platform = round2(total - creator - store);
-  return { creator, store, platform };
+
+  return { creator, store, platform: platform < 0 ? 0 : platform };
 }

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Module,
   NotFoundException,
@@ -12,6 +13,7 @@ import type { Response } from 'express';
 import { randomBytes } from 'node:crypto';
 import {
   createPublicationSchema,
+  roleAtLeast,
   type CreatePublicationInput,
   type TenantContext,
 } from '@openrate/shared';
@@ -44,6 +46,10 @@ class PublicationsController {
       );
       if ((v.rowCount ?? 0) === 0) throw new NotFoundException('vídeo não encontrado');
       const video = v.rows[0];
+      // Atendente só publica o PRÓPRIO vídeo; manager/owner publicam qualquer um da org.
+      if (!roleAtLeast(t.role, 'manager') && video.user_id !== t.userId) {
+        throw new ForbiddenException('você só pode publicar seus próprios vídeos');
+      }
       if (video.status !== 'approved') {
         throw new NotFoundException('vídeo não está aprovado para publicação');
       }

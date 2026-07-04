@@ -17,7 +17,8 @@ export async function sendWhatsApp(toE164: string, text: string): Promise<boolea
     );
     return true;
   } catch (err) {
-    logger.error({ err, toE164 }, 'falha ao enviar WhatsApp');
+    // Só a mensagem — o objeto de erro do axios carrega headers com apikey.
+    logger.error({ msg_err: err instanceof Error ? err.message : String(err), toE164 }, 'falha ao enviar WhatsApp');
     throw err;
   }
 }

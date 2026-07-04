@@ -3,9 +3,11 @@ import { NestFactory } from '@nestjs/core';
 import { randomUUID } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
-import { env } from './common/env';
+import { env, assertProductionEnv } from './common/env';
 
 async function bootstrap(): Promise<void> {
+  // Fail-closed: em produção, aborta se segredos estiverem ausentes/padrão.
+  assertProductionEnv();
   const app = await NestFactory.create(AppModule, { bodyParser: true });
 
   // correlation id fim a fim (propagado para os jobs).

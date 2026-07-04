@@ -149,10 +149,16 @@ export type CreateGoalInput = z.infer<typeof createGoalSchema>;
 // --- Sprint 4: afiliados, vendas e comissão ---
 
 // Registro manual de "publiquei este vídeo na plataforma X" + link de afiliado.
+// destino do redirect: só http(s) (bloqueia javascript:/data: — o /r/:code é
+// público e faz 302 para esta URL).
+const httpUrl = z.string().url().refine((u) => /^https?:\/\//i.test(u), {
+  message: 'a URL deve começar com http:// ou https://',
+});
+
 export const createPublicationSchema = z.object({
   platform: z.enum(PUBLICATION_PLATFORMS),
-  externalUrl: z.string().url().optional(), // URL pública do post
-  destinationUrl: z.string().url(), // URL de afiliado (destino do redirect)
+  externalUrl: httpUrl.optional(), // URL pública do post
+  destinationUrl: httpUrl, // URL de afiliado (destino do redirect)
   caption: z.string().max(2200).optional(),
 });
 export type CreatePublicationInput = z.infer<typeof createPublicationSchema>;

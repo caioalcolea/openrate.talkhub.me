@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Module, Param, Post } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Module, Param, Post } from '@nestjs/common';
 import axios from 'axios';
 import {
   inviteUserSchema,
+  roleAtLeast,
   type InviteUserInput,
   OPENRATE_PRODUCT,
   type TenantContext,
@@ -17,6 +18,7 @@ class UsersController {
   constructor(private readonly pg: PgService) {}
 
   @Get('stores/:id/users')
+  @Roles('manager')
   listByStore(@CurrentTenant() t: TenantContext, @Param('id') storeId: string) {
     return this.pg.withTenant(t, (c) =>
       c
@@ -39,6 +41,14 @@ class UsersController {
     @CurrentTenant() t: TenantContext,
     @Body(new ZodValidationPipe(inviteUserSchema)) dto: InviteUserInput,
   ): Promise<{ id: string; email: string }> {
+    // Anti-escalonamento: nunca convidar super_admin por aqui, e nunca convidar
+    // alguém MAIS privilegiado que o convidante (manager não cria owner).
+    if (dto.role === 'super_admin') {
+      throw new ForbiddenException('super_admin não é criado por convite');
+    }
+    if (!roleAtLeast(t.role, dto.role)) {
+      throw new ForbiddenException('você não pode convidar um papel mais privilegiado que o seu');
+    }
     const storeId = dto.storeId ?? t.storeId ?? null;
     const created = await axios.post(
       `${env.supabaseUrl}/auth/v1/admin/users`,

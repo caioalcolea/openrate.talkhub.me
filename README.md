@@ -19,7 +19,9 @@ O repositório contém a **especificação, a análise crítica, a arquitetura, 
 | [`docs/02-arquitetura.md`](docs/02-arquitetura.md) | Arquitetura de microserviços: diagramas, catálogo dos serviços novos, contratos de uso dos serviços reaproveitados, fluxos críticos, rotas da API, monorepo e convenções transversais. |
 | [`docs/03-banco-de-dados.md`](docs/03-banco-de-dados.md) | Modelagem do schema `openrate`: diagramas ER por domínio, motor de comissão, RLS de duas vias e regras de convivência no Postgres compartilhado. |
 | [`docs/04-sprints.md`](docs/04-sprints.md) | Plano de desenvolvimento em sprints (Fundação → MVP → Dinheiro → Escala), com DoD, capacidade e riscos. |
-| [`docs/05-deploy-e-validacao.md`](docs/05-deploy-e-validacao.md) | Como colocar na VPS, a partir do Git, o que existe hoje para validar (migration, bucket) e o que falta (Sprint 0) para a stack subir por completo. |
+| [`docs/05-deploy-e-validacao.md`](docs/05-deploy-e-validacao.md) | Deploy a partir do Git: o que validar (migrations, bucket) e como subir a stack. |
+| [`docs/06-primeiro-deploy.md`](docs/06-primeiro-deploy.md) | **Passo a passo do PRIMEIRO deploy** (git via passphrase → `.env` → `bash deploy/first-up.sh`). |
+| [`deploy/first-up.sh`](deploy/first-up.sh) | Script idempotente de primeiro up: infra → banco (migrations) → MinIO → build → `docker stack deploy` → smoke. |
 | [`db/migrations/0001_init.sql`](db/migrations/0001_init.sql) | Migration inicial: schema `openrate` (27 tabelas, 13 enums, 64 policies de RLS com FORCE, view de metas). Validada de ponta a ponta em Postgres 16. |
 | [`deploy/openrate.yaml`](deploy/openrate.yaml) | Stack Docker Swarm no padrão "Orion" do servidor, pronta para colar no Portainer. |
 | [`deploy/.env.example`](deploy/.env.example) | Variáveis de ambiente da stack (placeholders — nunca valores reais). |

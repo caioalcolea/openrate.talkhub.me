@@ -4,9 +4,13 @@ import { join, dirname, basename } from 'node:path';
 import { env } from './env';
 import { logger } from './logger';
 
-// Transcreve o áudio via faster-whisper (CLI), gerando SRT. Retorna o caminho do
-// SRT e o texto concatenado. Se o CLI não estiver disponível, retorna null
-// (o pipeline segue sem legenda em vez de falhar o job inteiro).
+// Binário do CLI de transcrição (whisper-ctranslate2 — usa faster-whisper por
+// baixo). Sobreponível por env caso a imagem use outro (ex.: whisper).
+const WHISPER_BIN = process.env.WHISPER_BIN ?? 'whisper-ctranslate2';
+
+// Transcreve o áudio via CLI, gerando SRT. Retorna o caminho do SRT e o texto
+// concatenado. Se o CLI não estiver disponível/falhar, retorna null (o pipeline
+// segue sem legenda em vez de derrubar o job inteiro).
 export async function transcribeToSrt(
   input: string,
   outDir: string,
@@ -21,14 +25,14 @@ export async function transcribeToSrt(
   ];
   try {
     await new Promise<void>((resolve, reject) => {
-      const p = spawn('faster-whisper', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+      const p = spawn(WHISPER_BIN, args, { stdio: ['ignore', 'ignore', 'pipe'] });
       let err = '';
       p.stderr.on('data', (d) => (err += d.toString()));
       p.on('error', reject);
-      p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`faster-whisper ${code}: ${err.slice(-1000)}`))));
+      p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`${WHISPER_BIN} ${code}: ${err.slice(-1000)}`))));
     });
   } catch (err) {
-    logger.warn({ err }, 'faster-whisper indisponível/falhou; seguindo sem legenda');
+    logger.warn({ err }, 'CLI de transcrição indisponível/falhou; seguindo sem legenda');
     return null;
   }
   const srtPath = join(outDir, basename(input).replace(/\.[^.]+$/, '') + '.srt');

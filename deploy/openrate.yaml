@@ -71,19 +71,14 @@ services:
       - S3_FORCE_PATH_STYLE=true
       - S3_ACCESS_KEY=${S3_ACCESS_KEY}
       - S3_SECRET_KEY=${S3_SECRET_KEY}
-    ## 🔑 IA — geração de ideias/roteiros (claude-sonnet-5) com fallback econômico (claude-haiku-4-5)
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - AI_MODEL_PRIMARY=claude-sonnet-5
-      - AI_MODEL_FALLBACK=claude-haiku-4-5
-    ## 🔑 Pagamentos — payout Pix via Asaas (transfer API)
-      - ASAAS_API_KEY=${ASAAS_API_KEY}
-      - ASAAS_BASE_URL=${ASAAS_BASE_URL}
-    ## 🔑 WhatsApp — notificações via Evolution API já em produção na rede talkhub
-      - EVOLUTION_API_URL=http://evolution_evolution_api:8080
-      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
-      - EVOLUTION_INSTANCE=${EVOLUTION_INSTANCE}
-    ## 🔑 Scraping de métricas — Chrome headless já em produção na rede talkhub
-      - BROWSERLESS_URL=http://browserless_browserless:3000
+    ## 🔑 Webhooks de terceiros (validados por token próprio; podem ficar vazios no MVP)
+      - ASAAS_WEBHOOK_TOKEN=${ASAAS_WEBHOOK_TOKEN}
+      - DOCUSEAL_WEBHOOK_TOKEN=${DOCUSEAL_WEBHOOK_TOKEN}
+    ## 🔑 URL pública da própria API — base dos links de afiliado (/r/:code)
+      - API_PUBLIC_URL=https://openrate-api.talkhub.me
+    ## NOTA: a API só ENFILEIRA jobs — quem chama Anthropic/Asaas/Evolution/
+    ##       Browserless é o worker. Por menor-privilégio, esses segredos NÃO
+    ##       são injetados aqui (ficam só no openrate_worker).
     healthcheck:
       ## usa o node da própria imagem (Node >= 18 tem fetch) — não depende de wget/curl na base
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
@@ -113,7 +108,7 @@ services:
 ## --------------------------- ORION --------------------------- ##
 
   openrate_worker:
-    image: talkhub/openrate-worker:latest ## Worker BullMQ + FFmpeg + faster-whisper (build local no servidor)
+    image: talkhub/openrate-worker:latest ## Worker BullMQ + FFmpeg + whisper-ctranslate2 (build local no servidor)
     networks:
       - talkhub ## Nome da rede interna
     environment:
@@ -132,11 +127,9 @@ services:
       - DATABASE_POOL_MAX=5 ## worker usa pool menor que a API
     ## 🔑 Filas — Redis DEDICADO da stack (alias openrate_redis; NUNCA o global redis_redis)
       - REDIS_URL=redis://:${OPENRATE_REDIS_PASSWORD}@openrate_redis:6379
-    ## 🔑 Supabase Auth (gotrue)
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+    ## NOTA: o worker NÃO valida JWT nem usa a Admin API do gotrue (processa jobs
+    ##       com claims sintéticos do tenant). Por menor-privilégio, os segredos
+    ##       SUPABASE_* (incl. service_role) ficam só no openrate_api.
     ## 🔑 Storage — MinIO (download do raw/, upload do final/ e thumbs/)
       - S3_ENDPOINT=http://minio_minio:9000
       - S3_PUBLIC_ENDPOINT=https://bucketss3.talkhub.me

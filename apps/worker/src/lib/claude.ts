@@ -60,7 +60,7 @@ export async function generateIdeas(input: IdeaPromptInput): Promise<VideoIdea[]
   try {
     return await callModel(env.aiModelPrimary, prompt);
   } catch (err) {
-    logger.warn({ err }, 'modelo primário falhou; tentando fallback');
+    logger.warn({ msg_err: err instanceof Error ? err.message : String(err) }, 'modelo primário falhou; tentando fallback');
     return callModel(env.aiModelFallback, prompt);
   }
 }

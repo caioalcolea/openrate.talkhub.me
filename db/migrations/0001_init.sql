@@ -677,8 +677,9 @@ CREATE TABLE openrate.affiliate_sales (
   imported_at           timestamptz NOT NULL DEFAULT now(),
   created_at            timestamptz NOT NULL DEFAULT now(),
   updated_at            timestamptz NOT NULL DEFAULT now(),
-  -- Idempotência de importação: a mesma venda nunca entra duas vezes.
-  CONSTRAINT uq_affiliate_sales_platform_ext UNIQUE (platform, external_id)
+  -- Idempotência de importação POR ORG: a mesma venda nunca entra duas vezes na
+  -- mesma org, mas orgs distintas podem ter external_id iguais na plataforma.
+  CONSTRAINT uq_affiliate_sales_org_platform_ext UNIQUE (organization_id, platform, external_id)
 );
 
 CREATE TABLE openrate.payouts (

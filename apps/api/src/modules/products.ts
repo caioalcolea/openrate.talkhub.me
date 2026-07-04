@@ -7,6 +7,7 @@ import {
 import { PgService } from '../common/pg.service';
 import { CurrentTenant } from '../common/tenant';
 import { ZodValidationPipe } from '../common/zod.pipe';
+import { Roles } from '../auth/roles.decorator';
 
 @Controller('products')
 class ProductsController {
@@ -35,6 +36,7 @@ class ProductsController {
   }
 
   @Post()
+  @Roles('manager')
   create(
     @CurrentTenant() t: TenantContext,
     @Body(new ZodValidationPipe(createProductSchema)) dto: CreateProductInput,
@@ -65,6 +67,7 @@ class ProductsController {
   }
 
   @Patch(':id')
+  @Roles('manager')
   update(
     @CurrentTenant() t: TenantContext,
     @Param('id') id: string,

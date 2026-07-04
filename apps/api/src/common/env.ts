@@ -26,6 +26,25 @@ export const env = {
   apiPublicUrl: process.env.API_PUBLIC_URL ?? 'https://openrate-api.talkhub.me',
 };
 
+const DEFAULT_JWT_SECRET = 'dev-super-secret-hs256-change-me';
+
+// Fail-closed: em produção, RECUSA subir com segredos ausentes ou iguais ao
+// default de dev — senão qualquer um forjaria um JWT (bypass total de auth).
+export function assertProductionEnv(): void {
+  if (env.nodeEnv !== 'production') return;
+  const bad: string[] = [];
+  if (!env.jwtSecret || env.jwtSecret === DEFAULT_JWT_SECRET) bad.push('SUPABASE_JWT_SECRET');
+  if (!env.supabaseServiceRoleKey) bad.push('SUPABASE_SERVICE_ROLE_KEY');
+  if (!env.s3SecretKey || env.s3SecretKey === 'minioadmin') bad.push('S3_SECRET_KEY');
+  if (env.databaseUrl.includes('dev_openrate')) bad.push('DATABASE_URL');
+  if (bad.length) {
+    throw new Error(
+      `Env de produção inválida ou com valores de dev: ${bad.join(', ')}. ` +
+        'Defina segredos reais antes de subir a API.',
+    );
+  }
+}
+
 export function redisConnection() {
   const u = new URL(env.redisUrl);
   return {

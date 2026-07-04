@@ -2,6 +2,7 @@ import { Body, Controller, Get, Module, Post } from '@nestjs/common';
 import type { TenantContext } from '@openrate/shared';
 import { PgService } from '../common/pg.service';
 import { CurrentTenant } from '../common/tenant';
+import { Roles } from '../auth/roles.decorator';
 
 // Brands, categories e video-types — apoio ao catálogo/conteúdo.
 
@@ -15,6 +16,7 @@ class BrandsController {
     );
   }
   @Post()
+  @Roles('manager')
   create(@CurrentTenant() t: TenantContext, @Body() b: { name: string }) {
     return this.pg.withTenant(t, (c) =>
       c
@@ -34,6 +36,7 @@ class CategoriesController {
     );
   }
   @Post()
+  @Roles('manager')
   create(@CurrentTenant() t: TenantContext, @Body() b: { name: string; slug: string; parentId?: string }) {
     return this.pg.withTenant(t, (c) =>
       c
