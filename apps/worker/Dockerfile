@@ -16,8 +16,10 @@ COPY apps/worker/package.json apps/worker/
 RUN pnpm install --frozen-lockfile --filter @openrate/worker...
 COPY packages/shared packages/shared
 COPY apps/worker apps/worker
+# --legacy: no pnpm v10 o `deploy` recusa workspaces não-injetados por padrão
+# (ERR_PNPM_DEPLOY_NONINJECTED_WORKSPACE). --legacy empacota @openrate/shared no /app.
 RUN pnpm --filter @openrate/shared build && pnpm --filter @openrate/worker build \
-  && pnpm --filter @openrate/worker deploy --prod /app
+  && pnpm --filter @openrate/worker deploy --prod --legacy /app
 
 FROM node:20-bookworm-slim AS runtime
 # ffmpeg para edição; whisper-ctranslate2 fornece o CLI de transcrição em CPU

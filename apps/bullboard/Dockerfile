@@ -10,8 +10,9 @@ COPY apps/bullboard/package.json apps/bullboard/
 RUN pnpm install --frozen-lockfile --filter @openrate/bullboard...
 COPY packages/shared packages/shared
 COPY apps/bullboard apps/bullboard
+# --legacy: pnpm v10 exige p/ deploy de workspace não-injetado (empacota @openrate/shared).
 RUN pnpm --filter @openrate/shared build && pnpm --filter @openrate/bullboard build \
-  && pnpm --filter @openrate/bullboard deploy --prod /app
+  && pnpm --filter @openrate/bullboard deploy --prod --legacy /app
 
 FROM node:20-alpine AS runtime
 ENV NODE_ENV=production TZ=America/Sao_Paulo PORT=3000

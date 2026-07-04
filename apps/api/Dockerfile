@@ -9,8 +9,11 @@ COPY apps/api/package.json apps/api/
 RUN pnpm install --frozen-lockfile --filter @openrate/api...
 COPY packages/shared packages/shared
 COPY apps/api apps/api
+# --legacy: no pnpm v10 o `deploy` recusa workspaces não-injetados por padrão
+# (ERR_PNPM_DEPLOY_NONINJECTED_WORKSPACE). --legacy restaura o comportamento que
+# empacota @openrate/shared no /app. (packageManager fixa pnpm@10 via corepack.)
 RUN pnpm --filter @openrate/shared build && pnpm --filter @openrate/api build \
-  && pnpm --filter @openrate/api deploy --prod /app
+  && pnpm --filter @openrate/api deploy --prod --legacy /app
 
 FROM node:20-alpine AS runtime
 ENV NODE_ENV=production TZ=America/Sao_Paulo PORT=3000
