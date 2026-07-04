@@ -47,7 +47,9 @@ set -a; . "$ENV_FILE"; set +a
 docker network inspect talkhub >/dev/null 2>&1 || die "rede overlay 'talkhub' não existe."
 
 find_ctr(){ docker ps -q -f "name=^$1\\." | head -1; }
-psql_su(){ docker exec -i "$DBCTR" psql -U postgres -d postgres "$@"; }
+# Conecta como superuser postgres: -u postgres cobre peer/trust via socket;
+# PGPASSWORD cobre md5/scram. Um dos dois funciona em qualquer config do supabase_db.
+psql_su(){ docker exec -u postgres -e PGPASSWORD="${SUPABASE_DB_POSTGRES_PASSWORD:-}" -i "$DBCTR" psql -U postgres -d postgres "$@"; }
 
 # ---------------------------------------------------------------- 2. DNS
 log "2/8 DNS dos hosts"
@@ -108,10 +110,11 @@ log "  banco: $(psql_su -tAc "SELECT count(*) FROM information_schema.tables WHE
 # ---------------------------------------------------------------- 5. MinIO
 log "5/8 MinIO (bucket + lifecycle + usuário + policy)"
 docker run --rm --network talkhub \
-  -e MC_HOST_t="http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@minio_minio:9000" \
+  -e RUSER="$MINIO_ROOT_USER" -e RPASS="$MINIO_ROOT_PASSWORD" \
   -e ACCESS="$S3_ACCESS_KEY" -e SECRET="$S3_SECRET_KEY" \
   --entrypoint /bin/sh quay.io/minio/mc -c '
     set -e
+    mc alias set t http://minio_minio:9000 "$RUSER" "$RPASS"
     mc mb --ignore-existing t/openrate-media
     mc anonymous set none t/openrate-media
     ( mc ilm rule add t/openrate-media --expire-days 30 --prefix "raw/" \
