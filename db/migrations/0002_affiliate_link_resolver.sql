@@ -15,11 +15,12 @@
 --   A role de runtime openrate_app continua restrita à sua policy tenant_isolation
 --   (a policy do owner NÃO se aplica a ela), sem enumeração de links de terceiros.
 --
--- ⚠️  APLICAR COMO openrate_owner (dono do schema/tabela). O first-up.sh faz
---     SET ROLE openrate_owner automaticamente. Manualmente:
---       { echo "SET ROLE openrate_owner;"; \
---         sed '/^-- migrate:down/,$d' 0002_affiliate_link_resolver.sql; } \
---       | psql -U postgres -d postgres --single-transaction -v ON_ERROR_STOP=1 -f -
+-- ⚠️  APLICAR COMO openrate_owner CONECTANDO DIRETO (não use SET ROLE: no supabase_db
+--     o supautils encerra a conexão em SET ROLE). O first-up.sh conecta como owner via
+--     TCP+senha. Manualmente:
+--       sed '/^-- migrate:down/,$d' 0002_affiliate_link_resolver.sql \
+--       | PGPASSWORD=<owner_pw> psql -h 127.0.0.1 -U openrate_owner -d postgres \
+--           --single-transaction -v ON_ERROR_STOP=1 -f -
 -- ============================================================================
 
 -- migrate:up

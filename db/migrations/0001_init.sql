@@ -51,6 +51,24 @@ BEGIN
 END $$;
 
 -- ----------------------------------------------------------------------------
+-- MODELO DE CONFIANÇA (leia antes de mexer no RLS):
+--   O RLS aqui é ISOLAMENTO DE CONSULTA (defense-in-depth), NÃO uma fronteira
+--   contra a própria role de runtime. openrate_app conecta direto e todo o RLS
+--   deriva de current_setting('request.jwt.claims'); EXECUTE em set_config é
+--   PUBLIC no Supabase. Logo, QUALQUER SQL arbitrário rodando como openrate_app
+--   (credencial vazada ou UMA injeção de SQL) pode forjar
+--   {"app_metadata":{"role":"super_admin"}} e ler/gravar qualquer tenant.
+--   A FRONTEIRA REAL é a API: valida o JWT (HS256) e só então injeta os claims
+--   com set_config(..., is_local=TRUE) DENTRO da transação do request (ver
+--   apps/api/src/common/pg.service.ts — nunca is_local=false, senão o claim
+--   vaza no pool p/ o próximo request de outro tenant). Toda construção de query
+--   deve ser parametrizada. A role de migração openrate_owner é DONA das tabelas
+--   e, mesmo com FORCE RLS, pode desabilitar RLS/dropar policies: sua senha
+--   (deploy/.env, root-only) é tão sensível quanto um bypass total — mantenha-a
+--   de alta entropia e NUNCA a compartilhe com a role de runtime.
+-- ----------------------------------------------------------------------------
+
+-- ----------------------------------------------------------------------------
 -- 1. Schema e search_path
 --    O schema normalmente já é criado pelo runbook (passo 3.2, como postgres,
 --    AUTHORIZATION openrate_owner). O guard abaixo evita chamar CREATE SCHEMA

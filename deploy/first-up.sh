@@ -44,6 +44,15 @@ set -a; . "$ENV_FILE"; set +a
 : "${S3_ACCESS_KEY:?}"; : "${S3_SECRET_KEY:?}"
 : "${MINIO_ROOT_USER:?defina em .env}"; : "${MINIO_ROOT_PASSWORD:?defina em .env}"
 : "${SUPABASE_JWT_SECRET:?}"; : "${BULLBOARD_BASICAUTH:?}"
+# As senhas de DB/Redis entram CRUAS em DATABASE_URL/REDIS_URL (URI) no openrate.yaml.
+# Um char reservado de URI (@ : / ? # % espaço…) reparseia host/porta e quebra a conexão
+# de TODOS os apps silenciosamente — a role é criada, o script passa verde, mas os
+# containers não conectam. Exige alfabeto URL-safe [A-Za-z0-9._-] e falha cedo.
+for _v in OPENRATE_DB_PASSWORD OPENRATE_DB_OWNER_PASSWORD OPENRATE_REDIS_PASSWORD; do
+  case "${!_v}" in
+    *[!A-Za-z0-9._-]*) die "$_v tem caractere fora de [A-Za-z0-9._-]; essas senhas entram em DATABASE_URL/REDIS_URL e caracteres reservados de URI quebram a conexão. Troque por uma senha alfanumérica." ;;
+  esac
+done
 docker network inspect talkhub >/dev/null 2>&1 || die "rede overlay 'talkhub' não existe."
 
 find_ctr(){ docker ps -q -f "name=^$1\\." | head -1; }
@@ -87,6 +96,16 @@ CREATE ROLE openrate_app LOGIN PASSWORD :'pw' NOSUPERUSER NOCREATEDB NOCREATEROL
 SQL
   log "  role openrate_app criada"
 fi
+# Sincroniza a senha das roles com o .env SEM recriá-las (idempotente). Cobre rotação
+# de segredo: sem isto, re-rodar após trocar a senha no .env mantém a senha ANTIGA na
+# role e a conexão do owner/app falha depois, parecendo (erroneamente) problema de pg_hba.
+# Só a senha (LOGIN PASSWORD). NÃO re-assere NOBYPASSRLS aqui: mudar o atributo
+# BYPASSRLS exige que QUEM altera tenha BYPASSRLS, e não queremos depender disso —
+# as roles já nascem NOBYPASSRLS no CREATE e o guard do 0001 recusa se não for.
+psql_su -v ON_ERROR_STOP=1 -v opw="$OPENRATE_DB_OWNER_PASSWORD" -v apw="$OPENRATE_DB_PASSWORD" >/dev/null <<'SQL'
+ALTER ROLE openrate_owner LOGIN PASSWORD :'opw';
+ALTER ROLE openrate_app   LOGIN PASSWORD :'apw';
+SQL
 # Conexão como o DONO do schema (openrate_owner) via TCP+senha — a MESMA via do app.
 # No supabase_db o postgres NÃO é superuser e o supautils ENCERRA a conexão (FATAL)
 # em `GRANT <role> TO postgres` e em `SET ROLE`; por isso NÃO usamos SET ROLE nem
@@ -96,7 +115,15 @@ psql_owner(){ docker exec -e PGPASSWORD="$OPENRATE_DB_OWNER_PASSWORD" -i "$DBCTR
 # schema criado pelo postgres (vira dono do schema); CREATE/USAGE p/ o owner criar
 # as TABELAS (que ficam do owner — é o que importa p/ o FORCE RLS). Idempotente.
 psql_su -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
-GRANT CONNECT ON DATABASE postgres TO openrate_owner, openrate_app;
+DO $$ BEGIN
+  -- não-fatal: PUBLIC já tem CONNECT por padrão; se o "postgres" não puder conceder
+  -- (não é dono do database), apenas seguimos em vez de abortar o bloco inteiro.
+  BEGIN
+    EXECUTE 'GRANT CONNECT ON DATABASE postgres TO openrate_owner, openrate_app';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'sem privilegio p/ GRANT CONNECT (PUBLIC ja tem por padrao); seguindo.';
+  END;
+END $$;
 CREATE SCHEMA IF NOT EXISTS openrate;
 GRANT USAGE, CREATE ON SCHEMA openrate TO openrate_owner;
 GRANT USAGE ON SCHEMA openrate TO openrate_app;
@@ -116,9 +143,9 @@ END $$;
 REVOKE CREATE ON SCHEMA public FROM openrate_app;
 SQL
 
-# confere a conexão como owner ANTES das migrations (mensagem clara se falhar)
-psql_owner -tAc "SELECT 1" >/dev/null 2>&1 \
-  || die "não consegui conectar como openrate_owner via TCP+senha (confira OPENRATE_DB_OWNER_PASSWORD e o pg_hba do supabase_db)."
+# confere a conexão como owner ANTES das migrations (surfaceia o erro real do psql)
+_ownerr="$(psql_owner -tAc "SELECT 1" 2>&1 1>/dev/null)" \
+  || die "não consegui conectar como openrate_owner via TCP+senha. Erro: ${_ownerr:-desconhecido}. Confira OPENRATE_DB_OWNER_PASSWORD e o pg_hba do supabase_db."
 
 # 0001/0002/0003 aplicadas COMO openrate_owner (conexão direta; sem SET ROLE).
 # 0002 usa policy só-para-o-owner na affiliate_links (a função SECURITY DEFINER roda
@@ -134,8 +161,10 @@ sed '/^-- migrate:down/,$d' db/migrations/0002_affiliate_link_resolver.sql | psq
 sed '/^-- migrate:down/,$d' db/migrations/0003_seed_video_types.sql        | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
 
 # contagens COMO owner. video_types roda sob FORCE RLS até p/ o dono; usamos um claim
-# super_admin efêmero p/ a policy super_admin_all liberar a leitura (senão mostraria 0).
-_vt="$(psql_owner -tAc "SELECT set_config('request.jwt.claims','{\"app_metadata\":{\"role\":\"super_admin\"}}',false); SELECT count(*) FROM openrate.video_types WHERE organization_id IS NULL" | tail -1 | tr -d '[:space:]')"
+# super_admin TRANSACTION-LOCAL (is_local=true — mesmo padrão seguro do app, que não
+# vaza claim no pool). --single-transaction envolve o -c em BEGIN/COMMIT, então o claim
+# vale p/ o count E o count continua sendo o último resultado (PQexec devolve o último).
+_vt="$(psql_owner --single-transaction -tAc "SELECT set_config('request.jwt.claims','{\"app_metadata\":{\"role\":\"super_admin\"}}',true); SELECT count(*) FROM openrate.video_types WHERE organization_id IS NULL" | tail -1 | tr -d '[:space:]')"
 log "  banco: $(psql_owner -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='openrate' AND table_type='BASE TABLE'") tabelas, ${_vt:-?} tipos de vídeo"
 
 # ---------------------------------------------------------------- 5. MinIO

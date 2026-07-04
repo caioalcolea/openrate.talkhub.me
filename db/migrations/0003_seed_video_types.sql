@@ -10,7 +10,8 @@
 -- (openrate_owner) suspendendo o FORCE só durante o seed e restaurando em
 -- seguida — ao final a tabela volta a FORÇAR RLS (invariante do 0001).
 --
--- ⚠️  APLICAR COMO openrate_owner (o first-up.sh faz SET ROLE automaticamente).
+-- ⚠️  APLICAR COMO openrate_owner CONECTANDO DIRETO (não use SET ROLE: o supautils do
+--     supabase_db encerra a conexão em SET ROLE). O first-up.sh conecta via TCP+senha.
 --     A suspensão do FORCE ocorre dentro da mesma transação (--single-transaction).
 -- ============================================================================
 
