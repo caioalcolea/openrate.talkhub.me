@@ -16,7 +16,7 @@ import {
   type TenantContext,
 } from '@openrate/shared';
 import { PgService } from '../common/pg.service';
-import { CurrentTenant } from '../common/tenant';
+import { assertOrgContext, CurrentTenant } from '../common/tenant';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { Roles } from '../auth/roles.decorator';
 import { hashPassword } from '../common/password';
@@ -58,6 +58,7 @@ class UsersController {
     if (!roleAtLeast(t.role, dto.role)) {
       throw new ForbiddenException('você não pode convidar um papel mais privilegiado que o seu');
     }
+    assertOrgContext(t); // super_admin precisa entrar numa org antes de convidar
     const storeId = dto.storeId ?? t.storeId ?? null;
     const tempPassword = randomBytes(9).toString('base64url'); // ~12 chars
     const passwordHash = await hashPassword(tempPassword);

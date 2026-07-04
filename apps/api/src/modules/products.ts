@@ -5,7 +5,7 @@ import {
   type TenantContext,
 } from '@openrate/shared';
 import { PgService } from '../common/pg.service';
-import { CurrentTenant } from '../common/tenant';
+import { assertOrgContext, CurrentTenant } from '../common/tenant';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { Roles } from '../auth/roles.decorator';
 
@@ -42,6 +42,8 @@ class ProductsController {
     @Body(new ZodValidationPipe(createProductSchema)) dto: CreateProductInput,
   ) {
     // scope=platform => produto global (org null, exige super_admin via RLS).
+    // Demais escopos exigem uma org no contexto (evita 500 por CHECK/NOT NULL).
+    if (dto.scope !== 'platform') assertOrgContext(t);
     const orgId = dto.scope === 'platform' ? null : t.orgId;
     return this.pg.withTenant(t, (c) =>
       c

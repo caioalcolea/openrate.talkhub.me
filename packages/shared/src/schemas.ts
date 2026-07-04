@@ -138,6 +138,7 @@ export const affiliateSaleRowSchema = z.object({
 export type AffiliateSaleRow = z.infer<typeof affiliateSaleRowSchema>;
 
 export const createGoalSchema = z.object({
+  name: z.string().min(2).max(160),
   storeId: uuid.nullable().optional(),
   userId: uuid.nullable().optional(),
   period: z.enum(GOAL_PERIODS).default('daily'),

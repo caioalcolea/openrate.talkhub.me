@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
   ForbiddenException,
   Get,
   Module,
+  NotFoundException,
   Patch,
   Post,
   UnauthorizedException,
@@ -33,6 +35,9 @@ interface BootstrapDto {
   email?: string;
   password?: string;
   fullName?: string;
+}
+interface SwitchOrgDto {
+  orgId?: string;
 }
 
 interface AuthUserRow {
@@ -67,13 +72,16 @@ function appMetadata(p: Principal) {
 }
 
 function session(p: Principal) {
+  // email é opcional no jwtClaimsSchema, mas se presente precisa ser um e-mail VÁLIDO
+  // (senão o guard rejeita). Só o incluímos quando não-vazio.
+  const emailClaim = p.email ? { email: p.email } : {};
   const access_token = jwt.sign(
-    { sub: p.id, email: p.email, app_metadata: appMetadata(p) },
+    { sub: p.id, ...emailClaim, app_metadata: appMetadata(p) },
     env.jwtSecret,
     { algorithm: 'HS256', expiresIn: ACCESS_TTL_SECONDS },
   );
   const refresh_token = jwt.sign(
-    { sub: p.id, email: p.email, typ: 'refresh', app_metadata: appMetadata(p) },
+    { sub: p.id, ...emailClaim, typ: 'refresh', app_metadata: appMetadata(p) },
     env.jwtSecret,
     { algorithm: 'HS256', expiresIn: REFRESH_TTL },
   );
@@ -168,6 +176,38 @@ class AuthController {
       throw new ConflictException('bootstrap indisponível: já existe um super_admin');
     }
     return session({ id, email: body.email, organization_id: null, store_id: null, role: 'super_admin' });
+  }
+
+  // "Act-as-org": re-emite o JWT com a org escolhida. super_admin entra em QUALQUER
+  // org; os demais papéis só na própria (senão 403). É o que dá contexto de tenant a
+  // um super_admin (que nasce com org_id null) para operar dentro de uma organização.
+  @Post('switch-org')
+  async switchOrg(@CurrentTenant() t: TenantContext, @Body() body: SwitchOrgDto): Promise<unknown> {
+    if (!body.orgId) throw new BadRequestException('orgId obrigatório');
+    if (t.role !== 'super_admin' && t.orgId !== body.orgId) {
+      throw new ForbiddenException('sem acesso a esta organização');
+    }
+    // Sob o RLS do próprio usuário: super_admin vê todas (super_admin_all), owner/manager
+    // veem a própria (org_self_read); self_read garante ler o próprio e-mail.
+    const found = await this.pg.withTenant(t, async (c) => {
+      const org = (
+        await c.query<{ id: string }>('SELECT id FROM openrate.organizations WHERE id = $1', [
+          body.orgId,
+        ])
+      ).rows[0];
+      const me = (
+        await c.query<{ email: string }>('SELECT email FROM openrate.users WHERE id = $1', [t.userId])
+      ).rows[0];
+      return { org, email: me?.email };
+    });
+    if (!found.org) throw new NotFoundException('organização não encontrada');
+    return session({
+      id: t.userId,
+      email: found.email ?? '',
+      organization_id: body.orgId,
+      store_id: null,
+      role: t.role,
+    });
   }
 }
 

@@ -5,7 +5,7 @@ import {
   type TenantContext,
 } from '@openrate/shared';
 import { PgService } from '../common/pg.service';
-import { CurrentTenant } from '../common/tenant';
+import { assertOrgContext, CurrentTenant } from '../common/tenant';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { Roles } from '../auth/roles.decorator';
 
@@ -43,6 +43,7 @@ class StoresController {
     @CurrentTenant() t: TenantContext,
     @Body(new ZodValidationPipe(createStoreSchema)) dto: CreateStoreInput,
   ) {
+    assertOrgContext(t);
     return this.pg.withTenant(t, (c) =>
       c
         .query(
