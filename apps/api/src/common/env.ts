@@ -6,10 +6,8 @@ export const env = {
   dbPoolMax: Number(process.env.DATABASE_POOL_MAX ?? 10),
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
 
-  supabaseUrl: process.env.SUPABASE_URL ?? 'http://localhost:8000',
-  supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? '',
-  supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
-  jwtSecret: process.env.SUPABASE_JWT_SECRET ?? 'dev-super-secret-hs256-change-me',
+  // Segredo HS256 com que a API assina e valida o próprio JWT (auth própria).
+  jwtSecret: process.env.JWT_SECRET ?? 'dev-super-secret-hs256-change-me',
 
   s3Endpoint: process.env.S3_ENDPOINT ?? 'http://localhost:9000',
   s3PublicEndpoint: process.env.S3_PUBLIC_ENDPOINT ?? 'http://localhost:9000',
@@ -40,9 +38,9 @@ const DEFAULT_JWT_SECRET = 'dev-super-secret-hs256-change-me';
 export function assertProductionEnv(): void {
   if (env.nodeEnv !== 'production') return;
   const bad: string[] = [];
-  // SUPABASE_JWT_SECRET é ESSENCIAL: a API assina o próprio JWT com ele (auth
-  // própria — o gotrue compartilhado tem login por e-mail desabilitado).
-  if (!env.jwtSecret || env.jwtSecret === DEFAULT_JWT_SECRET) bad.push('SUPABASE_JWT_SECRET');
+  // JWT_SECRET é ESSENCIAL: a API assina e valida o próprio JWT com ele.
+  // Sem um segredo real, qualquer um forjaria um token (bypass total de auth).
+  if (!env.jwtSecret || env.jwtSecret === DEFAULT_JWT_SECRET) bad.push('JWT_SECRET');
   if (!env.s3SecretKey || env.s3SecretKey === 'minioadmin') bad.push('S3_SECRET_KEY');
   if (env.databaseUrl.includes('dev_openrate')) bad.push('DATABASE_URL');
   if (bad.length) {

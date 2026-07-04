@@ -1,5 +1,7 @@
 # 01 — Análise Crítica da Especificação OpenRate (v1.0)
 
+> **⚠️ Estado atual:** documento histórico de projeto. A stack hoje usa **autenticação própria da API** (scrypt + JWT HS256 com `JWT_SECRET`, **sem gotrue**) e trata o Postgres como um **banco compartilhado comum** (container `supabase_db`), sem depender de features do Supabase. Referência atual: [`../README.md`](../README.md). Menções a "Supabase/gotrue" abaixo refletem o desenho original.
+
 > Documento de análise técnica de `openrate-produto-e-stack.md`, com foco em viabilidade de implantação no ambiente real de produção (Docker Swarm, nó único manager, rede overlay `talkhub`). Cada lacuna identificada vem acompanhada de melhoria concreta. Este documento **não reabre decisões já fechadas** — apenas as valida, detalha ou corrige onde a spec está imprecisa.
 
 ---

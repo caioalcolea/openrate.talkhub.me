@@ -1,5 +1,7 @@
 # 05 — Deploy e Validação (a partir do Git, na VPS)
 
+> **⚠️ Estado atual:** o deploy é automatizado por [`../deploy/first-up.sh`](../deploy/first-up.sh) e [`../redeploy.sh`](../redeploy.sh). Autenticação **própria da API** (JWT HS256 com `JWT_SECRET`, **sem gotrue**); banco é um **Postgres compartilhado comum** (container `supabase_db`), sem features do Supabase. Referência atual: [`../README.md`](../README.md). Menções a "Supabase/gotrue" abaixo refletem o desenho original.
+
 > Como colocar na VPS **o que existe hoje no repositório** para validar, e o que falta para o stack subir por completo. Complementa [`../deploy/runbook.md`](../deploy/runbook.md) (procedimento detalhado) e [`04-sprints.md`](04-sprints.md) (Sprint 0).
 
 ## O que já existe

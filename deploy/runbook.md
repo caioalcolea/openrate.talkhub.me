@@ -1,7 +1,9 @@
 # Runbook de deploy — stack `openrate` (Docker Swarm / Portainer)
 
+> **⚠️ Estado atual:** o deploy é automatizado por [`first-up.sh`](first-up.sh) e [`../redeploy.sh`](../redeploy.sh) — prefira-os aos passos manuais abaixo. A autenticação é **própria da API** (scrypt + JWT HS256 com `JWT_SECRET`), **sem gotrue**; o banco é um **Postgres compartilhado comum** (container `supabase_db`), sem features do Supabase. Variáveis: `JWT_SECRET` (não `SUPABASE_JWT_SECRET`), `DB_SUPERUSER_PASSWORD` (não `SUPABASE_DB_POSTGRES_PASSWORD`); `SUPABASE_URL/ANON_KEY/SERVICE_ROLE_KEY` não existem mais. Referência completa: [`../README.md`](../README.md). Passos com gotrue/Supabase Auth abaixo são históricos.
+
 Passo a passo para colocar o OpenRate em produção na rede overlay `talkhub`,
-reaproveitando `supabase_db` (Postgres), `supabase_auth` (gotrue), MinIO,
+reaproveitando o Postgres compartilhado (container `supabase_db`), MinIO,
 Evolution API e Browserless. Todos os comandos são executados no nó manager,
 salvo indicação contrária.
 

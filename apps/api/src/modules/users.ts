@@ -41,9 +41,8 @@ class UsersController {
     );
   }
 
-  // Convite: cria o usuário DIRETO em openrate.users (auth própria; o gotrue
-  // compartilhado tem login por e-mail desabilitado) com uma senha temporária que
-  // o convidante repassa. A inserção roda no tenant do convidante (RLS garante que
+  // Convite: cria o usuário DIRETO em openrate.users (auth própria) com uma senha
+  // temporária que o convidante repassa. A inserção roda no tenant do convidante (RLS garante que
   // só cria dentro da org dele). O convidado troca a senha depois.
   @Post('users/invite')
   @Roles('manager')

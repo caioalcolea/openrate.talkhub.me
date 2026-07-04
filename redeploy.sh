@@ -17,8 +17,8 @@
 #     NUNCA faz `docker system/image/volume/builder prune` GLOBAL — isso apagaria
 #     imagens, volumes e cache de OUTROS produtos e derrubaria a produção deles.
 #
-# PRESERVA (não apaga): o banco (schema openrate no supabase_db compartilhado), o
-# bucket MinIO (openrate-media) e, por padrão, o volume openrate_redis_data.
+# PRESERVA (não apaga): o banco (schema openrate no Postgres compartilhado — container
+# supabase_db), o bucket MinIO (openrate-media) e, por padrão, o volume openrate_redis_data.
 # ============================================================================
 set -euo pipefail
 

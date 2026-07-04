@@ -1,11 +1,10 @@
 import { z } from 'zod';
 import { USER_ROLES, type UserRole } from './enums';
 
-// Marca do produto no app_metadata do gotrue. A API rejeita tokens sem ela
-// (o gotrue é compartilhado com outros produtos da rede talkhub).
+// Marca do produto dentro de app_metadata no JWT. A API rejeita tokens sem ela.
 export const OPENRATE_PRODUCT = 'openrate' as const;
 
-// app_metadata gravado via Admin API do gotrue no provisionamento do usuário.
+// app_metadata que a API grava no JWT ao provisionar/autenticar o usuário.
 export const appMetadataSchema = z.object({
   product: z.literal(OPENRATE_PRODUCT),
   org_id: z.string().uuid().nullable().optional(),
@@ -14,7 +13,7 @@ export const appMetadataSchema = z.object({
 });
 export type AppMetadata = z.infer<typeof appMetadataSchema>;
 
-// Claims do JWT emitido pelo gotrue (HS256), validados localmente pela API.
+// Claims do JWT (HS256) emitido e validado localmente pela API.
 export const jwtClaimsSchema = z.object({
   sub: z.string().uuid(),
   email: z.string().email().optional(),
@@ -50,8 +49,8 @@ export function roleAtLeast(role: UserRole, min: UserRole): boolean {
 }
 
 // Monta o JSON de claims que a API injeta no GUC request.jwt.claims por
-// transação (is_local=true). É o mesmo shape que o gotrue coloca no JWT,
-// para as policies RLS lerem org_id/role indistintamente das duas origens.
+// transação (is_local=true) — é a partir dele que as policies RLS leem
+// org_id/role do tenant corrente.
 export function claimsForSetConfig(ctx: TenantContext): string {
   return JSON.stringify({
     sub: ctx.userId,

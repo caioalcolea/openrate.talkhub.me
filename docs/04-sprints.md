@@ -1,5 +1,7 @@
 # 04 — Plano de Desenvolvimento em Sprints
 
+> **⚠️ Estado atual:** documento histórico de projeto. A stack hoje usa **autenticação própria da API** (scrypt + JWT HS256 com `JWT_SECRET`, **sem gotrue**) e trata o Postgres como um **banco compartilhado comum** (container `supabase_db`), sem depender de features do Supabase. Referência atual: [`../README.md`](../README.md). Menções a "Supabase/gotrue" abaixo refletem o desenho original.
+
 > Mapeia as 3 fases do roadmap da spec (`openrate-produto-e-stack.md`, seção 2.5) em sprints concretas de 2 semanas (exceto a Sprint 0, de 1 semana). Complementa `02-arquitetura.md` (topologia e contratos de reuso) e `deploy/runbook.md` (procedimentos operacionais). Premissa de time: **1-2 devs full-stack + IA de código** (ver seção de capacidade).
 
 Correspondência fase → sprint:

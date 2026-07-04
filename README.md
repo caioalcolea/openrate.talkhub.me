@@ -40,9 +40,9 @@ Scripts na raiz (todos via Turbo): `pnpm build`, `pnpm typecheck`, `pnpm lint`, 
 
 ## Arquitetura em uma frase
 
-Uma stack Swarm nova (`openrate`) com **5 serviços** — `openrate_api` (NestJS), `openrate_worker` (BullMQ + FFmpeg + faster-whisper), `openrate_web` (Next.js: painel **e** PWA), `openrate_redis` (filas, dedicado com `noeviction`) e `openrate_bullboard` (observabilidade das filas) — que **reaproveita** serviços já em produção no servidor Talkhub: **Postgres do Supabase** (`supabase_db`, schema `openrate` isolado), **MinIO** (`minio_minio`, bucket `openrate-media`), **Evolution API** (WhatsApp), **Browserless** (scraping de métricas), **Asaas** (Pix), **Docuseal** (termo de cessão de imagem) e **Anthropic** (IA de roteiros), tudo atrás do **Traefik** existente.
+Uma stack Swarm nova (`openrate`) com **5 serviços** — `openrate_api` (NestJS), `openrate_worker` (BullMQ + FFmpeg + faster-whisper), `openrate_web` (Next.js: painel **e** PWA), `openrate_redis` (filas, dedicado com `noeviction`) e `openrate_bullboard` (observabilidade das filas) — que **reaproveita** serviços já em produção no servidor Talkhub: **Postgres compartilhado** (container `supabase_db`, schema `openrate` isolado — tratado como um Postgres comum, sem dependência de features do Supabase), **MinIO** (`minio_minio`, bucket `openrate-media`), **Evolution API** (WhatsApp), **Browserless** (scraping de métricas), **Asaas** (Pix), **Docuseal** (termo de cessão de imagem) e **Anthropic** (IA de roteiros), tudo atrás do **Traefik** existente.
 
-**Autenticação é própria da API** (o gotrue compartilhado tem login por e-mail desativado): a API verifica hash de senha com **scrypt** contra `openrate.users` e assina seu **próprio JWT HS256** com `SUPABASE_JWT_SECRET`, no mesmo formato de claims que o RLS espera (`app_metadata.{product,org_id,store_id,role}`), então as policies do banco funcionam sem alteração.
+**Autenticação é própria da API**: a API verifica hash de senha com **scrypt** contra `openrate.users` e assina seu **próprio JWT HS256** com `JWT_SECRET`, no formato de claims que o RLS espera (`app_metadata.{product,org_id,store_id,role}`), então as policies do banco leem o tenant direto dele.
 
 **Rede e DNS interno:** a overlay `talkhub` é **externa** (`external: true`); por isso os serviços registram pelo nome completo `<stack>_<serviço>` e se referenciam assim — ex.: o Redis é `openrate_openrate_redis:6379`, e os reaproveitados são `supabase_db:5432`, `minio_minio:9000`, `evolution_evolution_api:8080`, `browserless_browserless:3000`.
 
@@ -70,7 +70,7 @@ Uma stack Swarm nova (`openrate`) com **5 serviços** — `openrate_api` (NestJS
 
 ## Modelo de dados & multi-tenancy
 
-Schema **`openrate`** dentro do `supabase_db` (Postgres 15): **27 tabelas + 1 view** (`v_goal_progress_daily`), **13 enums**, organizado por domínio — multi-tenancy (`organizations`, `stores`, `users`, `user_stores`), catálogo (`brands`, `categories`, `products`, `product_images`, `product_variations`, `store_inventory`), conteúdo (`video_types`, `video_ideas`, `videos`, `video_publications`, `affiliate_links`), financeiro (`commission_rules`, `affiliate_sales`, `commission_entries`, `payouts`), engajamento (`goals`, `achievements`, `user_achievements`), CRM físico (`customers`, `store_sales`) e operação (`integrations`, `notifications`, `audit_log`). Detalhes e diagramas em [`docs/03-banco-de-dados.md`](docs/03-banco-de-dados.md).
+Schema **`openrate`** no Postgres 15 compartilhado (container `supabase_db`): **27 tabelas + 1 view** (`v_goal_progress_daily`), **13 enums**, organizado por domínio — multi-tenancy (`organizations`, `stores`, `users`, `user_stores`), catálogo (`brands`, `categories`, `products`, `product_images`, `product_variations`, `store_inventory`), conteúdo (`video_types`, `video_ideas`, `videos`, `video_publications`, `affiliate_links`), financeiro (`commission_rules`, `affiliate_sales`, `commission_entries`, `payouts`), engajamento (`goals`, `achievements`, `user_achievements`), CRM físico (`customers`, `store_sales`) e operação (`integrations`, `notifications`, `audit_log`). Detalhes e diagramas em [`docs/03-banco-de-dados.md`](docs/03-banco-de-dados.md).
 
 **Isolamento (RLS de duas vias):** toda tabela com `organization_id` tem `ENABLE` + **`FORCE ROW LEVEL SECURITY`** e as policies `tenant_isolation` (linha visível quando `organization_id = current_org_id()`) e `super_admin_all`. Tabelas de catálogo global têm `platform_read` (linhas com `organization_id IS NULL`); `users` tem `self_read`. A API valida o JWT e injeta os claims por transação via `SELECT set_config('request.jwt.claims', …, true)` (`PgService.withTenant`), de onde as funções `current_org_id()`/`current_user_role()`/`is_super_admin()` derivam o tenant.
 
@@ -186,9 +186,9 @@ As imagens `talkhub/openrate-*` são taggeadas com o SHA do git para o Swarm det
 
 | Grupo | Variáveis |
 |---|---|
-| Banco | `OPENRATE_DB_PASSWORD` (runtime `openrate_app`), `OPENRATE_DB_OWNER_PASSWORD` (migrations `openrate_owner`, só no `first-up.sh`) |
+| Banco | `OPENRATE_DB_PASSWORD` (runtime `openrate_app`); só no `first-up.sh`: `OPENRATE_DB_OWNER_PASSWORD` (migrations `openrate_owner`) e `DB_SUPERUSER_PASSWORD` (postgres do container do banco) |
 | Redis | `OPENRATE_REDIS_PASSWORD` |
-| JWT/Auth | `SUPABASE_JWT_SECRET` |
+| JWT/Auth | `JWT_SECRET` |
 | S3/MinIO | `S3_ACCESS_KEY`, `S3_SECRET_KEY` (e, só no provisionamento, `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD`) |
 | IA | `ANTHROPIC_API_KEY` |
 | Pagamentos | `ASAAS_API_KEY`, `ASAAS_BASE_URL`, `ASAAS_WEBHOOK_TOKEN` |

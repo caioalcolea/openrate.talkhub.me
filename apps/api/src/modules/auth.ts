@@ -94,10 +94,9 @@ function session(p: Principal) {
   };
 }
 
-// Auth PRÓPRIA do OpenRate: o gotrue compartilhado tem login por e-mail desabilitado,
-// então a API valida a senha (scrypt) contra openrate.users e emite o próprio JWT
-// HS256 — no MESMO shape do gotrue (assinado com SUPABASE_JWT_SECRET), então o
-// JwtAuthGuard e as policies RLS não mudam.
+// Auth PRÓPRIA do OpenRate: a API valida a senha (scrypt) contra openrate.users
+// e emite o próprio JWT HS256 (assinado com JWT_SECRET). O shape de claims é o que
+// o JwtAuthGuard e as policies RLS esperam.
 @Controller('auth')
 class AuthController {
   constructor(private readonly pg: PgService) {}

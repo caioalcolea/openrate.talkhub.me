@@ -1,7 +1,7 @@
 import { scrypt, randomBytes, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 
-// Auth PRÓPRIA do OpenRate (o gotrue compartilhado tem email login desabilitado).
+// Auth PRÓPRIA do OpenRate.
 // Hash de senha com scrypt NATIVO do Node — sem dependência externa e sem build
 // nativo (roda igual no Alpine). Formato: scrypt$<saltHex>$<hashHex>.
 const scryptAsync = promisify(scrypt);

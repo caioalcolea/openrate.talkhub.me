@@ -1,25 +1,22 @@
 -- ============================================================================
 -- OpenRate — Migration 0004_own_auth
 --
--- Autenticação PRÓPRIA da API (o gotrue compartilhado do Supabase tem o login por
--- e-mail/senha desabilitado — GOTRUE_EXTERNAL_EMAIL_ENABLED=false — e não podemos
--- mexer nele por ser infra compartilhada). A API passa a:
---   * guardar o hash da senha em openrate.users.password_hash (scrypt, feito no Node);
---   * emitir o próprio JWT HS256 (assinado com SUPABASE_JWT_SECRET) no mesmo shape
---     que o gotrue emitia — o guard/RLS não mudam.
+-- Autenticação PRÓPRIA da API. A API:
+--   * guarda o hash da senha em openrate.users.password_hash (scrypt, feito no Node);
+--   * emite o próprio JWT HS256 (assinado com JWT_SECRET) no shape que o guard/RLS esperam.
 --
 -- login e bootstrap acontecem SEM claim de tenant (pré-autenticação), então o
 -- FORCE RLS de users bloquearia. Resolvemos com uma policy só-para-o-owner + duas
 -- funções SECURITY DEFINER (donas de openrate_owner) que expõem só o necessário.
 --
 -- ⚠️  APLICAR COMO openrate_owner CONECTANDO DIRETO (sem SET ROLE; o supautils do
---     supabase_db encerra a conexão em SET ROLE). O first-up.sh conecta via TCP+senha.
+--     container do banco encerra a conexão em SET ROLE). O first-up.sh conecta via TCP+senha.
 -- ============================================================================
 
 -- migrate:up
 SET search_path TO openrate, public;
 
--- id auto-gerado (antes vinha do auth.users do gotrue; agora é nosso) + coluna do hash.
+-- id auto-gerado pela própria tabela + coluna do hash da senha.
 ALTER TABLE openrate.users ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE openrate.users ADD COLUMN IF NOT EXISTS password_hash text;
 

@@ -9,8 +9,8 @@ services:
 ## serviço pelo NOME COMPLETO <stack>_<chave>. Como a stack se chama "openrate", o
 ## Redis desta stack resolve como "openrate_openrate_redis" (NÃO como a chave curta
 ## "openrate_redis" — essa não é registrada em rede externa). Por isso os REDIS_URL
-## abaixo usam o nome completo, mesmo padrão dos serviços de terceiros que
-## consumimos (supabase_db, minio_minio, evolution_evolution_api, browserless_browserless).
+## abaixo usam o nome completo, mesmo padrão dos serviços compartilhados do servidor
+## que consumimos (supabase_db, minio_minio, evolution_evolution_api, browserless_browserless).
 
   openrate_redis:
     image: redis:7-alpine ## Redis dedicado do OpenRate — NÃO usar o redis global (redis_redis), que não tem noeviction
@@ -54,17 +54,15 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - TZ=America/Sao_Paulo
-    ## 🔑 Banco de dados — REUSA o Postgres do Supabase (schema dedicado "openrate", role openrate_app)
-    ##    search_path=openrate é definido no nível da role (ALTER ROLE ... SET search_path — ver runbook passo 3)
+    ## 🔑 Banco de dados — REUSA o Postgres compartilhado do servidor (container supabase_db),
+    ##    schema dedicado "openrate", role openrate_app. search_path=openrate é definido no
+    ##    nível da role (ALTER ROLE ... SET search_path — ver runbook passo 3)
       - DATABASE_URL=postgresql://openrate_app:${OPENRATE_DB_PASSWORD}@supabase_db:5432/postgres
-      - DATABASE_POOL_MAX=10 ## máx. 10 conexões p/ não esgotar max_connections compartilhado com gotrue/postgrest/storage
+      - DATABASE_POOL_MAX=10 ## máx. 10 conexões p/ não esgotar o max_connections compartilhado
     ## 🔑 Filas — Redis DEDICADO (nome completo openrate_openrate_redis; NUNCA o global redis_redis)
       - REDIS_URL=redis://:${OPENRATE_REDIS_PASSWORD}@openrate_openrate_redis:6379
-    ## 🔑 Supabase Auth (gotrue) — validação local de JWT + Admin API p/ app_metadata (org_id, store_id, role)
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+    ## 🔑 Auth própria — a API assina e valida o próprio JWT HS256 com este segredo
+      - JWT_SECRET=${JWT_SECRET}
     ## 🔑 Storage — REUSA o MinIO existente; upload direto do navegador (PWA) via presigned multipart (vídeo NÃO passa pela API)
       - S3_ENDPOINT=http://minio_minio:9000
       - S3_PUBLIC_ENDPOINT=https://bucketss3.talkhub.me
@@ -131,9 +129,8 @@ services:
       - DATABASE_POOL_MAX=5 ## worker usa pool menor que a API
     ## 🔑 Filas — Redis DEDICADO (nome completo openrate_openrate_redis; NUNCA o global redis_redis)
       - REDIS_URL=redis://:${OPENRATE_REDIS_PASSWORD}@openrate_openrate_redis:6379
-    ## NOTA: o worker NÃO valida JWT nem usa a Admin API do gotrue (processa jobs
-    ##       com claims sintéticos do tenant). Por menor-privilégio, os segredos
-    ##       SUPABASE_* (incl. service_role) ficam só no openrate_api.
+    ## NOTA: o worker NÃO valida JWT (processa jobs com claims sintéticos do tenant),
+    ##       por isso não recebe o JWT_SECRET — só a API assina/valida tokens.
     ## 🔑 Storage — MinIO (download do raw/, upload do final/ e thumbs/)
       - S3_ENDPOINT=http://minio_minio:9000
       - S3_PUBLIC_ENDPOINT=https://bucketss3.talkhub.me

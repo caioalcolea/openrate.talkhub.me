@@ -194,7 +194,8 @@ export type PayPayoutInput = z.infer<typeof payPayoutSchema>;
 // Cadastro/edição da própria chave Pix (dado sensível do recebedor).
 export const updatePixSchema = z.object({
   pixKey: z.string().min(1).max(140),
-  pixKeyType: z.enum(['cpf', 'cnpj', 'email', 'phone', 'random']),
+  // 'evp' = chave aleatória. Igual ao CHECK de users.pix_key_type no banco.
+  pixKeyType: z.enum(['cpf', 'cnpj', 'email', 'phone', 'evp']),
   cpf: z.string().max(14).optional(),
 });
 export type UpdatePixInput = z.infer<typeof updatePixSchema>;

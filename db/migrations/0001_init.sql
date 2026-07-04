@@ -1,6 +1,6 @@
 -- ============================================================================
 -- OpenRate — Migration 0001_init
--- Schema dedicado "openrate" no Postgres 15 compartilhado (supabase_db).
+-- Schema dedicado "openrate" no Postgres 15 compartilhado (container supabase_db).
 --
 -- PRÉ-REQUISITOS (runbook de provisionamento, FORA desta migration):
 --   1. Role de aplicação criada:
@@ -225,13 +225,10 @@ CREATE TYPE openrate.commission_beneficiary AS ENUM (
 -- 4. Funções auxiliares (JWT claims de duas fontes + updated_at)
 -- ----------------------------------------------------------------------------
 
--- Lê os claims do JWT de DUAS fontes, nesta ordem:
---   1) current_setting('request.jwt.claims') — populado pelo PostgREST
---      (supabase_rest) OU pela API NestJS via
---      set_config('request.jwt.claims', <json>, true) em conexão direta.
---   2) auth.jwt() — açúcar do Supabase; protegido por EXCEPTION porque a
---      função pode não existir (Postgres de teste) ou a role pode não ter
---      privilégio no schema auth (caso da openrate_app).
+-- Lê os claims do JWT de current_setting('request.jwt.claims'), populado pela
+-- API via set_config('request.jwt.claims', <json>, true) em conexão direta.
+-- (A migration 0005 remove um fallback antigo para auth.jwt() — hoje esta é a
+-- única fonte de claims.)
 CREATE OR REPLACE FUNCTION openrate.jwt_claims()
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -261,10 +258,10 @@ END;
 $$;
 
 COMMENT ON FUNCTION openrate.jwt_claims() IS
-  'Claims do JWT via request.jwt.claims (PostgREST ou set_config da API) com fallback protegido para auth.jwt().';
+  'Claims do JWT via request.jwt.claims (set_config da API por transação).';
 
 -- org_id do tenant corrente. Aceita o claim tanto em app_metadata.org_id
--- (formato do gotrue) quanto no topo do JSON (formato simplificado).
+-- quanto no topo do JSON (formato simplificado).
 CREATE OR REPLACE FUNCTION openrate.current_org_id()
 RETURNS uuid
 LANGUAGE plpgsql
@@ -301,8 +298,8 @@ END;
 $$;
 
 -- Role de NEGÓCIO (super_admin/owner/manager/attendant). Lida SEMPRE de
--- app_metadata.role — nunca do claim top-level "role", que no gotrue é a
--- role do Postgres ('authenticated') e não a role do produto.
+-- app_metadata.role — nunca do claim top-level "role" (que costuma ser a
+-- role do Postgres, não a role do produto).
 CREATE OR REPLACE FUNCTION openrate.current_user_role()
 RETURNS text
 LANGUAGE plpgsql
@@ -373,15 +370,12 @@ CREATE TABLE openrate.stores (
 );
 COMMENT ON TABLE openrate.stores IS 'Loja física pertencente a uma organization.';
 
--- Espelho de auth.users (gotrue). id = auth.users.id, SEM FK física:
---   1) o schema "auth" pertence ao gotrue/Supabase — FK cross-schema criaria
---      dependência que quebra upgrades do gotrue e operações da Admin API
---      (delete/restore de usuário falharia por violação de FK do OpenRate);
+-- Usuários do OpenRate (id auto-gerado — ver 0004). Mantido em schema próprio,
+-- sem FK cross-schema para nenhum schema de auth externo:
+--   1) FK cross-schema criaria dependência que dificulta upgrades e backup/restore;
 --   2) backup/restore por schema (pg_dump -n openrate) ficaria irrestaurável
---      isoladamente com FK apontando para fora do schema;
---   3) a consistência é garantida pelo fluxo de provisionamento (Admin API
---      cria em auth.users e a API insere aqui na mesma operação) + job de
---      reconciliação periódico.
+--      isoladamente com FK apontando para fora do schema.
+--   A auth é própria da API (senha em password_hash; ver migration 0004).
 CREATE TABLE openrate.users (
   id                      uuid PRIMARY KEY,        -- MESMO id de auth.users
   organization_id         uuid REFERENCES openrate.organizations(id),

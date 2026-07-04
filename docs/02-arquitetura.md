@@ -1,5 +1,7 @@
 # 02 — Arquitetura de Microserviços
 
+> **⚠️ Estado atual:** documento histórico de projeto. A stack hoje usa **autenticação própria da API** (scrypt + JWT HS256 com `JWT_SECRET`, **sem gotrue**) e trata o Postgres como um **banco compartilhado comum** (container `supabase_db`), sem depender de features do Supabase. Referência atual: [`../README.md`](../README.md). Menções a "Supabase/gotrue" abaixo refletem o desenho original.
+
 > Documento de arquitetura do OpenRate integrado à infraestrutura de produção existente (Docker Swarm, nó único manager, rede overlay externa `talkhub`). Complementa a especificação de produto (`openrate-produto-e-stack.md`). Nenhuma porta é publicada no host: todo tráfego externo entra pelo Traefik (80/443) e todo tráfego interno usa DNS de serviço na rede `talkhub`.
 
 ---

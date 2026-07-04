@@ -1,5 +1,7 @@
 # 03 — Banco de Dados OpenRate
 
+> **⚠️ Estado atual:** documento histórico de projeto. A stack hoje usa **autenticação própria da API** (scrypt + JWT HS256 com `JWT_SECRET`, **sem gotrue**) e trata o Postgres como um **banco compartilhado comum** (container `supabase_db`), sem depender de features do Supabase. Referência atual: [`../README.md`](../README.md). Menções a "Supabase/gotrue" abaixo refletem o desenho original.
+
 > Modelagem do schema `openrate` no Postgres 15.8 compartilhado (`supabase_db`).
 > DDL executável: [`db/migrations/0001_init.sql`](../db/migrations/0001_init.sql) — validado de ponta a ponta (migration + RLS de duas vias + view + triggers) num Postgres limpo antes de entrar no repositório.
 

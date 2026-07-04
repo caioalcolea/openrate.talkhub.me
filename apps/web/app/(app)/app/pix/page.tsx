@@ -3,7 +3,13 @@ import { useState } from 'react';
 import { api } from '../../../../lib/api';
 import type { UpdatePixInput } from '@openrate/shared';
 
-const TYPES: UpdatePixInput['pixKeyType'][] = ['cpf', 'cnpj', 'email', 'phone', 'random'];
+const TYPES: { value: UpdatePixInput['pixKeyType']; label: string }[] = [
+  { value: 'cpf', label: 'CPF' },
+  { value: 'cnpj', label: 'CNPJ' },
+  { value: 'email', label: 'E-mail' },
+  { value: 'phone', label: 'Telefone' },
+  { value: 'evp', label: 'Aleatória (EVP)' },
+];
 
 export default function PixPage() {
   const [pixKey, setPixKey] = useState('');
@@ -26,7 +32,7 @@ export default function PixPage() {
       <form onSubmit={save} className="card flex flex-col gap-3">
         <select className="input" value={pixKeyType} onChange={(e) => setPixKeyType(e.target.value as UpdatePixInput['pixKeyType'])}>
           {TYPES.map((t) => (
-            <option key={t} value={t}>{t}</option>
+            <option key={t.value} value={t.value}>{t.label}</option>
           ))}
         </select>
         <input className="input" placeholder="Chave Pix" value={pixKey} onChange={(e) => setPixKey(e.target.value)} required />

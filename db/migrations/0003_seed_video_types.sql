@@ -6,12 +6,12 @@
 --
 -- Inserir linhas org-null é bloqueado pelo FORCE RLS (a policy tenant_isolation
 -- exige organization_id = claim, e sem claim current_org_id() é NULL). Como o
--- "postgres" do supabase_db não é superuser, aplicamos como o DONO
+-- "postgres" do banco compartilhado não é superuser, aplicamos como o DONO
 -- (openrate_owner) suspendendo o FORCE só durante o seed e restaurando em
 -- seguida — ao final a tabela volta a FORÇAR RLS (invariante do 0001).
 --
 -- ⚠️  APLICAR COMO openrate_owner CONECTANDO DIRETO (não use SET ROLE: o supautils do
---     supabase_db encerra a conexão em SET ROLE). O first-up.sh conecta via TCP+senha.
+--     container do banco encerra a conexão em SET ROLE). O first-up.sh conecta via TCP+senha.
 --     A suspensão do FORCE ocorre dentro da mesma transação (--single-transaction).
 -- ============================================================================
 

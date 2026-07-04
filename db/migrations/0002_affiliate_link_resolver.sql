@@ -5,8 +5,8 @@
 -- tem claim de org (o link é público e cross-tenant), então o FORCE RLS de
 -- affiliate_links bloquearia a leitura/contagem para o executor.
 --
--- Como o "postgres" do supabase_db NÃO é superuser, não há um superusuário para
--- ser dono da função e contornar o FORCE RLS. A solução — equivalente e
+-- Como o "postgres" do banco compartilhado NÃO é superuser, não há um superusuário
+-- para ser dono da função e contornar o FORCE RLS. A solução — equivalente e
 -- controlada, SEM superuser e MANTENDO o FORCE RLS na tabela (invariante do
 -- 0001) — é:
 --   * uma policy que se aplica APENAS à role dona (openrate_owner);
@@ -15,9 +15,9 @@
 --   A role de runtime openrate_app continua restrita à sua policy tenant_isolation
 --   (a policy do owner NÃO se aplica a ela), sem enumeração de links de terceiros.
 --
--- ⚠️  APLICAR COMO openrate_owner CONECTANDO DIRETO (não use SET ROLE: no supabase_db
---     o supautils encerra a conexão em SET ROLE). O first-up.sh conecta como owner via
---     TCP+senha. Manualmente:
+-- ⚠️  APLICAR COMO openrate_owner CONECTANDO DIRETO (não use SET ROLE: o supautils
+--     do container do banco encerra a conexão em SET ROLE). O first-up.sh conecta
+--     como owner via TCP+senha. Manualmente:
 --       sed '/^-- migrate:down/,$d' 0002_affiliate_link_resolver.sql \
 --       | PGPASSWORD=<owner_pw> psql -h 127.0.0.1 -U openrate_owner -d postgres \
 --           --single-transaction -v ON_ERROR_STOP=1 -f -

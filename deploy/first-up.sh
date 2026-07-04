@@ -9,8 +9,8 @@
 #   1. Pré-checagens (docker, swarm manager, .env)
 #   2. DNS dos 3 hosts (aviso)
 #   3. Volume openrate_redis_data
-#   4. Postgres do Supabase: roles openrate_owner/openrate_app + schema +
-#      migrations 0001 (como owner) / 0002 / 0003 (como postgres)
+#   4. Postgres compartilhado (container supabase_db): roles openrate_owner/openrate_app
+#      + schema + migrations 0001..0005 (como owner)
 #   5. MinIO: bucket openrate-media + lifecycle (raw/ 30d) + usuário + policy
 #   6. Build das 4 imagens talkhub/openrate-*
 #   7. docker stack deploy openrate
@@ -43,10 +43,9 @@ set -a; . "$ENV_FILE"; set +a
 : "${OPENRATE_REDIS_PASSWORD:?defina em .env}"
 : "${S3_ACCESS_KEY:?}"; : "${S3_SECRET_KEY:?}"
 : "${MINIO_ROOT_USER:?defina em .env}"; : "${MINIO_ROOT_PASSWORD:?defina em .env}"
-: "${SUPABASE_JWT_SECRET:?}"; : "${BULLBOARD_BASICAUTH:?}"
-# SUPABASE_JWT_SECRET (acima) é essencial: a API assina o próprio JWT com ele
-# (auth própria — o gotrue compartilhado tem login por e-mail desabilitado).
-# SUPABASE_URL/ANON/SERVICE_ROLE não são mais exigidos (a API não chama o gotrue).
+: "${JWT_SECRET:?}"; : "${BULLBOARD_BASICAUTH:?}"
+# JWT_SECRET (acima) é essencial: a API assina e valida o próprio JWT com ele
+# (auth própria da API).
 # As senhas de DB/Redis entram CRUAS em DATABASE_URL/REDIS_URL (URI) no openrate.yaml.
 # Um char reservado de URI (@ : / ? # % espaço…) reparseia host/porta e quebra a conexão
 # de TODOS os apps silenciosamente — a role é criada, o script passa verde, mas os
@@ -59,9 +58,9 @@ done
 docker network inspect talkhub >/dev/null 2>&1 || die "rede overlay 'talkhub' não existe."
 
 find_ctr(){ docker ps -q -f "name=^$1\\." | head -1; }
-# Conecta como superuser postgres: -u postgres cobre peer/trust via socket;
-# PGPASSWORD cobre md5/scram. Um dos dois funciona em qualquer config do supabase_db.
-psql_su(){ docker exec -u postgres -e PGPASSWORD="${SUPABASE_DB_POSTGRES_PASSWORD:-}" -i "$DBCTR" psql -U postgres -d postgres "$@"; }
+# Conecta como o postgres do container do banco: -u postgres cobre peer/trust via
+# socket; PGPASSWORD cobre md5/scram. Um dos dois funciona em qualquer config do DB.
+psql_su(){ docker exec -u postgres -e PGPASSWORD="${DB_SUPERUSER_PASSWORD:-}" -i "$DBCTR" psql -U postgres -d postgres "$@"; }
 
 # ---------------------------------------------------------------- 2. DNS
 log "2/8 DNS dos hosts"
@@ -135,11 +134,11 @@ ALTER ROLE openrate_app   SET search_path = openrate, extensions;
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname='extensions') THEN
     BEGIN
-      -- não-fatal: se "postgres" não for dono do schema extensions o Supabase
+      -- não-fatal: se "postgres" não for dono do schema extensions o servidor
       -- em geral já concede USAGE às roles; não abortamos o deploy por isso.
       EXECUTE 'GRANT USAGE ON SCHEMA extensions TO openrate_owner, openrate_app';
     EXCEPTION WHEN insufficient_privilege THEN
-      RAISE NOTICE 'sem privilegio p/ GRANT USAGE em extensions; seguindo (Supabase costuma conceder por padrao).';
+      RAISE NOTICE 'sem privilegio p/ GRANT USAGE em extensions; seguindo (o servidor costuma conceder por padrao).';
     END;
   END IF;
 END $$;
@@ -159,10 +158,11 @@ if [ -z "$(psql_owner -tAc "SELECT to_regclass('openrate.organizations')")" ]; t
 else
   log "  schema openrate já migrado (0001) — pulando"
 fi
-log "  aplicando 0002 (resolver), 0003 (seed) e 0004 (auth própria) como openrate_owner"
+log "  aplicando 0002 (resolver), 0003 (seed), 0004 (auth própria) e 0005 (limpeza) como openrate_owner"
 sed '/^-- migrate:down/,$d' db/migrations/0002_affiliate_link_resolver.sql | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
 sed '/^-- migrate:down/,$d' db/migrations/0003_seed_video_types.sql        | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
 sed '/^-- migrate:down/,$d' db/migrations/0004_own_auth.sql                | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
+sed '/^-- migrate:down/,$d' db/migrations/0005_drop_auth_jwt_fallback.sql  | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
 
 # contagens COMO owner. video_types roda sob FORCE RLS até p/ o dono; usamos um claim
 # super_admin TRANSACTION-LOCAL (is_local=true — mesmo padrão seguro do app, que não

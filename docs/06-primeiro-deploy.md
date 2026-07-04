@@ -1,5 +1,7 @@
 # 06 — Primeiro Deploy (passo a passo, do zero)
 
+> **⚠️ Estado atual:** o primeiro deploy é automatizado por [`../deploy/first-up.sh`](../deploy/first-up.sh) (`cp deploy/.env.example deploy/.env` → preencher → `bash deploy/first-up.sh`). Autenticação **própria da API** (JWT HS256 com `JWT_SECRET`, **sem gotrue**); banco é um **Postgres compartilhado comum** (container `supabase_db`), sem features do Supabase. Referência atual: [`../README.md`](../README.md). Menções a "Supabase/gotrue" abaixo refletem o desenho original.
+
 > Guia para colocar o OpenRate no ar pela **primeira vez** na VPS Talkhub, do
 > `git clone` ao stack rodando. Assume Docker Swarm + Traefik + Portainer +
 > Supabase + MinIO **já em produção** (o OpenRate só adiciona serviços novos).

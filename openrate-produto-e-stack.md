@@ -1,5 +1,7 @@
 # OpenRate — Especificação de Produto e Stack Tecnológica (v1.0)
 
+> **⚠️ Estado atual:** documento histórico de projeto (spec original). A stack hoje usa **autenticação própria da API** (scrypt + JWT HS256 com `JWT_SECRET`, **sem gotrue**) e trata o Postgres como um **banco compartilhado comum** (container `supabase_db`), sem depender de features do Supabase. Referência atual: [`README.md`](README.md). Menções a "Supabase/gotrue" abaixo refletem o desenho original.
+
 > Codinome anterior: "Loja Creator". Domínio de produção: **openrate.talkhub.me**
 
 ---
