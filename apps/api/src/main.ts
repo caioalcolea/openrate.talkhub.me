@@ -17,8 +17,9 @@ async function bootstrap(): Promise<void> {
   });
 
   app.enableCors({ origin: true, credentials: true });
-  // Prefixo /v1 em tudo, menos o /health (contrato do healthcheck do container).
-  app.setGlobalPrefix('v1', { exclude: ['health'] });
+  // Prefixo /v1 em tudo, menos o /health (healthcheck do container) e o
+  // redirect público de link de afiliado /r/:code (URL curta compartilhável).
+  app.setGlobalPrefix('v1', { exclude: ['health', 'r/:code'] });
 
   await app.listen(env.port, '0.0.0.0');
   // eslint-disable-next-line no-console

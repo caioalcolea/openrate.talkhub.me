@@ -14,6 +14,8 @@ import { VideosModule } from './modules/videos';
 import { GoalsModule } from './modules/goals';
 import { NotificationsModule } from './modules/notifications';
 import { CommissionRulesModule } from './modules/commission-rules';
+import { PublicationsModule } from './modules/publications';
+import { SalesModule } from './modules/sales';
 import { WebhooksModule } from './modules/webhooks';
 
 @Module({
@@ -31,6 +33,8 @@ import { WebhooksModule } from './modules/webhooks';
     GoalsModule,
     NotificationsModule,
     CommissionRulesModule,
+    PublicationsModule,
+    SalesModule,
     WebhooksModule,
   ],
   // JwtAuthGuard global: valida JWT + resolve tenant + checa @Roles.

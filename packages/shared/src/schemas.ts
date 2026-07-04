@@ -145,3 +145,27 @@ export const createGoalSchema = z.object({
   targetSalesAmount: money.optional(),
 });
 export type CreateGoalInput = z.infer<typeof createGoalSchema>;
+
+// --- Sprint 4: afiliados, vendas e comissão ---
+
+// Registro manual de "publiquei este vídeo na plataforma X" + link de afiliado.
+export const createPublicationSchema = z.object({
+  platform: z.enum(PUBLICATION_PLATFORMS),
+  externalUrl: z.string().url().optional(), // URL pública do post
+  destinationUrl: z.string().url(), // URL de afiliado (destino do redirect)
+  caption: z.string().max(2200).optional(),
+});
+export type CreatePublicationInput = z.infer<typeof createPublicationSchema>;
+
+// Simulador do motor de comissão (conferência do manager).
+export const simulateCommissionSchema = z.object({
+  amount: money,
+  storeId: uuid.nullable().optional(),
+  productId: uuid.nullable().optional(),
+  categoryId: uuid.nullable().optional(),
+  platform: z.enum(PUBLICATION_PLATFORMS).nullable().optional(),
+});
+export type SimulateCommissionInput = z.infer<typeof simulateCommissionSchema>;
+
+// Carência padrão até a comissão ficar pagável (dias). Override por org.settings.
+export const DEFAULT_PAYOUT_GRACE_DAYS = 30;

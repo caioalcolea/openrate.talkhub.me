@@ -1,13 +1,18 @@
 import { Body, Controller, Get, Module, Post } from '@nestjs/common';
 import {
   createCommissionRuleSchema,
+  simulateCommissionSchema,
+  resolveRule,
+  splitCommission,
   type CreateCommissionRuleInput,
+  type SimulateCommissionInput,
   type TenantContext,
 } from '@openrate/shared';
 import { PgService } from '../common/pg.service';
 import { CurrentTenant } from '../common/tenant';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { Roles } from '../auth/roles.decorator';
+import { loadApplicableRules } from '../common/commission-ingest';
 
 // Motor de comissão (Sprint 4) — aqui o CRUD das regras. A resolução
 // "mais específica vence" (priority GENERATED) roda na ingestão de vendas.
@@ -57,6 +62,27 @@ class CommissionRulesController {
         )
         .then((r) => r.rows[0]),
     );
+  }
+
+  // Simulador: dada uma venda hipotética, mostra qual regra vence e o rateio.
+  @Post('simulate')
+  async simulate(
+    @CurrentTenant() t: TenantContext,
+    @Body(new ZodValidationPipe(simulateCommissionSchema)) dto: SimulateCommissionInput,
+  ) {
+    if (!t.orgId) throw new Error('org ausente');
+    return this.pg.withTenant(t, async (c) => {
+      const rules = await loadApplicableRules(c, t.orgId as string);
+      const rule = resolveRule(rules, {
+        organizationId: t.orgId as string,
+        storeId: dto.storeId ?? null,
+        productId: dto.productId ?? null,
+        categoryId: dto.categoryId ?? null,
+        platform: dto.platform ?? null,
+      });
+      if (!rule) return { rule: null, split: null, message: 'Nenhuma regra aplicável.' };
+      return { rule, split: splitCommission(dto.amount, rule) };
+    });
   }
 }
 

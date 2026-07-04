@@ -21,6 +21,9 @@ export const env = {
 
   asaasWebhookToken: process.env.ASAAS_WEBHOOK_TOKEN ?? '',
   docusealWebhookToken: process.env.DOCUSEAL_WEBHOOK_TOKEN ?? '',
+
+  // URL pública da própria API (base dos links de afiliado /r/:code).
+  apiPublicUrl: process.env.API_PUBLIC_URL ?? 'https://openrate-api.talkhub.me',
 };
 
 export function redisConnection() {
