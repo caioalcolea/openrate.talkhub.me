@@ -3,12 +3,14 @@ services:
 
 ## --------------------------- ORION --------------------------- ##
 
-## As chaves de serviço deste yaml JÁ SÃO prefixadas (openrate_*) de propósito:
-## o Swarm registra a chave curta do compose como alias DNS na rede compartilhada
-## talkhub, e uma chave genérica ("redis", "api", "web") colidiria com serviços
-## de outras stacks (ex.: a stack global "redis" registra o alias "redis").
-## Mesmo padrão já usado no servidor por evolution_evolution_api e chatwoot_chatwoot_app.
-## Bônus: o alias "openrate_redis" resolve independentemente do nome dado à stack.
+## As chaves de serviço deste yaml JÁ SÃO prefixadas (openrate_*) de propósito, p/
+## não colidir com serviços de outras stacks nesta rede compartilhada.
+## IMPORTANTE (DNS entre serviços): numa overlay EXTERNA, o Swarm registra cada
+## serviço pelo NOME COMPLETO <stack>_<chave>. Como a stack se chama "openrate", o
+## Redis desta stack resolve como "openrate_openrate_redis" (NÃO como a chave curta
+## "openrate_redis" — essa não é registrada em rede externa). Por isso os REDIS_URL
+## abaixo usam o nome completo, mesmo padrão dos serviços de terceiros que
+## consumimos (supabase_db, minio_minio, evolution_evolution_api, browserless_browserless).
 
   openrate_redis:
     image: redis:7-alpine ## Redis dedicado do OpenRate — NÃO usar o redis global (redis_redis), que não tem noeviction
@@ -19,13 +21,7 @@ services:
     volumes:
       - openrate_redis_data:/data
     networks:
-      ## ALIAS EXPLÍCITO obrigatório: numa overlay EXTERNA compartilhada o Swarm
-      ## registra o serviço só pelo nome completo (openrate_openrate_redis) e NÃO
-      ## pela chave curta do compose. Sem este alias, api/worker/bullboard (que usam
-      ## REDIS_URL=...@openrate_redis:6379) recebem ENOTFOUND openrate_redis.
-      talkhub:
-        aliases:
-          - openrate_redis
+      - talkhub ## Nome da rede interna
     environment:
     ## 🔑 Ajustes gerais
       - TZ=America/Sao_Paulo
@@ -62,8 +58,8 @@ services:
     ##    search_path=openrate é definido no nível da role (ALTER ROLE ... SET search_path — ver runbook passo 3)
       - DATABASE_URL=postgresql://openrate_app:${OPENRATE_DB_PASSWORD}@supabase_db:5432/postgres
       - DATABASE_POOL_MAX=10 ## máx. 10 conexões p/ não esgotar max_connections compartilhado com gotrue/postgrest/storage
-    ## 🔑 Filas — Redis DEDICADO da stack (alias openrate_redis; o global compartilhado é redis_redis — NUNCA usar)
-      - REDIS_URL=redis://:${OPENRATE_REDIS_PASSWORD}@openrate_redis:6379
+    ## 🔑 Filas — Redis DEDICADO (nome completo openrate_openrate_redis; NUNCA o global redis_redis)
+      - REDIS_URL=redis://:${OPENRATE_REDIS_PASSWORD}@openrate_openrate_redis:6379
     ## 🔑 Supabase Auth (gotrue) — validação local de JWT + Admin API p/ app_metadata (org_id, store_id, role)
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
@@ -133,8 +129,8 @@ services:
     ## 🔑 Banco de dados — mesma conexão da API (schema "openrate", role openrate_app)
       - DATABASE_URL=postgresql://openrate_app:${OPENRATE_DB_PASSWORD}@supabase_db:5432/postgres
       - DATABASE_POOL_MAX=5 ## worker usa pool menor que a API
-    ## 🔑 Filas — Redis DEDICADO da stack (alias openrate_redis; NUNCA o global redis_redis)
-      - REDIS_URL=redis://:${OPENRATE_REDIS_PASSWORD}@openrate_redis:6379
+    ## 🔑 Filas — Redis DEDICADO (nome completo openrate_openrate_redis; NUNCA o global redis_redis)
+      - REDIS_URL=redis://:${OPENRATE_REDIS_PASSWORD}@openrate_openrate_redis:6379
     ## NOTA: o worker NÃO valida JWT nem usa a Admin API do gotrue (processa jobs
     ##       com claims sintéticos do tenant). Por menor-privilégio, os segredos
     ##       SUPABASE_* (incl. service_role) ficam só no openrate_api.
@@ -227,8 +223,8 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - TZ=America/Sao_Paulo
-    ## 🔑 Filas — leitura das filas no Redis dedicado da stack (alias openrate_redis)
-      - REDIS_URL=redis://:${OPENRATE_REDIS_PASSWORD}@openrate_redis:6379
+    ## 🔑 Filas — leitura das filas no Redis dedicado (nome completo openrate_openrate_redis)
+      - REDIS_URL=redis://:${OPENRATE_REDIS_PASSWORD}@openrate_openrate_redis:6379
     healthcheck:
       ## usa o node da própria imagem (Node >= 18 tem fetch) — não depende de wget/curl na base
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
