@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { api } from '../../../lib/api';
+import { api, ApiError } from '../../../lib/api';
+import { useToast } from '../../../components/toast';
+import { brl } from '../../../lib/format';
 
 interface Sale {
   id: string;
@@ -22,16 +24,29 @@ interface ImportReport {
   results: RowResult[];
 }
 
+const STATUS: Record<string, { label: string; cls: string }> = {
+  pending: { label: 'Pendente', cls: 'badge-amber' },
+  confirmed: { label: 'Confirmada', cls: 'badge-green' },
+  cancelled: { label: 'Cancelada', cls: 'badge-neutral' },
+  refunded: { label: 'Estornada', cls: 'badge-red' },
+};
+
 const TEMPLATE = 'platform,externalId,affiliateShortCode,amount,commissionableAmount,soldAt\ntiktok,ORDER-001,abc12345,199.90,20.00,2026-07-01T10:00:00Z';
 
 export default function SalesPage() {
-  const [sales, setSales] = useState<Sale[]>([]);
+  const toast = useToast();
+  const [sales, setSales] = useState<Sale[] | null>(null);
   const [csv, setCsv] = useState(TEMPLATE);
   const [report, setReport] = useState<ImportReport | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    setSales(await api<Sale[]>('/v1/affiliate-sales'));
+    try {
+      setSales(await api<Sale[]>('/v1/affiliate-sales'));
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+      setSales([]);
+    }
   }
   useEffect(() => {
     void load();
@@ -40,23 +55,27 @@ export default function SalesPage() {
   async function importCsv() {
     setBusy(true);
     try {
-      setReport(await api<ImportReport>('/v1/affiliate-sales/import', { method: 'POST', body: { csv } }));
+      const r = await api<ImportReport>('/v1/affiliate-sales/import', { method: 'POST', body: { csv } });
+      setReport(r);
+      toast.success(`${r.imported} venda(s) importada(s), ${r.duplicated} duplicada(s), ${r.failed} falha(s).`);
       await load();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-bold">Vendas de afiliado</h1>
+    <div className="space-y-6">
+      <h1>Vendas de afiliado</h1>
 
-      <section className="flex flex-col gap-3">
+      <section className="space-y-3">
         <h2 className="font-semibold">Importar (CSV)</h2>
         <p className="text-sm text-neutral-500">
           Colunas: platform, externalId, affiliateShortCode, amount, commissionableAmount, soldAt. Re-importar não duplica.
         </p>
-        <textarea className="input h-40 font-mono text-xs" value={csv} onChange={(e) => setCsv(e.target.value)} />
+        <textarea className="textarea h-40 font-mono text-xs" value={csv} onChange={(e) => setCsv(e.target.value)} />
         <button className="btn w-fit" disabled={busy} onClick={importCsv}>
           {busy ? 'Importando…' : 'Importar'}
         </button>
@@ -76,14 +95,35 @@ export default function SalesPage() {
         )}
       </section>
 
-      <section className="flex flex-col gap-2">
+      <section className="space-y-2">
         <h2 className="font-semibold">Vendas</h2>
-        {sales.map((s) => (
-          <div key={s.id} className="card text-sm">
-            {s.platform} · {s.external_id} · R$ {s.gross_amount} · <b>{s.status}</b>
+        {sales === null ? (
+          <div className="space-y-2">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="skeleton h-12 w-full" />
+            ))}
           </div>
-        ))}
-        {sales.length === 0 && <p className="text-neutral-500">Nenhuma venda importada.</p>}
+        ) : sales.length === 0 ? (
+          <div className="empty">
+            <span className="text-2xl">🧾</span>
+            Nenhuma venda importada ainda. Cole um CSV acima para começar.
+          </div>
+        ) : (
+          sales.map((s) => {
+            const st = STATUS[s.status] ?? { label: s.status, cls: 'badge-neutral' };
+            return (
+              <div key={s.id} className="card flex items-center justify-between gap-4 text-sm">
+                <span className="min-w-0 truncate">
+                  {s.platform} · {s.external_id}
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <b>{brl(s.gross_amount)}</b>
+                  <span className={`badge ${st.cls}`}>{st.label}</span>
+                </span>
+              </div>
+            );
+          })
+        )}
       </section>
     </div>
   );

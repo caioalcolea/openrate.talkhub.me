@@ -1,6 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { api } from '../../../lib/api';
+import { api, ApiError } from '../../../lib/api';
+import { useToast } from '../../../components/toast';
+import { Modal } from '../../../components/modal';
+import { dateTime } from '../../../lib/format';
 
 interface Video {
   id: string;
@@ -9,12 +12,28 @@ interface Video {
   created_at: string;
 }
 
+const STATUS: Record<string, { label: string; cls: string }> = {
+  processing: { label: 'Processando', cls: 'badge-amber' },
+  ready: { label: 'Aguardando aprovação', cls: 'badge-blue' },
+  approved: { label: 'Aprovado', cls: 'badge-green' },
+  rejected: { label: 'Reprovado', cls: 'badge-red' },
+  failed: { label: 'Falhou', cls: 'badge-red' },
+};
+
 export default function VideosPage() {
-  const [items, setItems] = useState<Video[]>([]);
+  const toast = useToast();
+  const [items, setItems] = useState<Video[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [rejectId, setRejectId] = useState<string | null>(null);
+  const [reason, setReason] = useState('');
 
   async function load() {
-    setItems(await api<Video[]>('/v1/videos'));
+    try {
+      setItems(await api<Video[]>('/v1/videos'));
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+      setItems([]);
+    }
   }
   useEffect(() => {
     void load();
@@ -22,41 +41,110 @@ export default function VideosPage() {
 
   async function approve(id: string) {
     setBusy(id);
-    await api(`/v1/videos/${id}/approve`, { method: 'POST' });
-    await load();
-    setBusy(null);
+    try {
+      await api(`/v1/videos/${id}/approve`, { method: 'POST' });
+      toast.success('Vídeo aprovado.');
+      await load();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
   }
-  async function reject(id: string) {
-    const reason = prompt('Motivo da reprovação:');
-    if (!reason) return;
+
+  async function confirmReject() {
+    if (!rejectId || reason.trim().length < 3) return;
+    const id = rejectId;
     setBusy(id);
-    await api(`/v1/videos/${id}/reject`, { method: 'POST', body: { reason } });
-    await load();
-    setBusy(null);
+    try {
+      await api(`/v1/videos/${id}/reject`, { method: 'POST', body: { reason: reason.trim() } });
+      toast.success('Vídeo reprovado.');
+      setRejectId(null);
+      setReason('');
+      await load();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <h1 className="text-2xl font-bold">Vídeos</h1>
-      <div className="flex flex-col gap-2">
-        {items.map((v) => (
-          <div key={v.id} className="card flex items-center justify-between">
-            <div>
-              <p className="font-mono text-xs text-neutral-400">{v.id}</p>
-              <p className="text-sm">
-                status: <b>{v.status}</b> · {v.duration_seconds ?? '—'}s
-              </p>
-            </div>
-            {v.status === 'ready' && (
-              <div className="flex gap-2">
-                <button className="btn" disabled={busy === v.id} onClick={() => approve(v.id)}>Aprovar</button>
-                <button className="btn bg-red-600" disabled={busy === v.id} onClick={() => reject(v.id)}>Reprovar</button>
+    <div className="space-y-4">
+      <h1>Fila de aprovação de vídeos</h1>
+
+      {items === null ? (
+        <div className="space-y-2">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="skeleton h-16 w-full" />
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <div className="empty">
+          <span className="text-2xl">🎬</span>
+          Nenhum vídeo ainda. Assim que um atendente gravar e enviar, ele aparece aqui para aprovação.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((v) => {
+            const s = STATUS[v.status] ?? { label: v.status, cls: 'badge-neutral' };
+            return (
+              <div key={v.id} className="card flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`badge ${s.cls}`}>{s.label}</span>
+                    <span className="text-xs text-neutral-500">
+                      {v.duration_seconds ? `${v.duration_seconds}s · ` : ''}
+                      {dateTime(v.created_at)}
+                    </span>
+                  </div>
+                  <p className="mt-1 truncate font-mono text-xs text-neutral-400">{v.id}</p>
+                </div>
+                {v.status === 'ready' && (
+                  <div className="flex shrink-0 gap-2">
+                    <button className="btn btn-sm" disabled={busy === v.id} onClick={() => approve(v.id)}>
+                      Aprovar
+                    </button>
+                    <button
+                      className="btn-danger btn-sm"
+                      disabled={busy === v.id}
+                      onClick={() => {
+                        setRejectId(v.id);
+                        setReason('');
+                      }}
+                    >
+                      Reprovar
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        ))}
-        {items.length === 0 && <p className="text-neutral-500">Nenhum vídeo ainda.</p>}
-      </div>
+            );
+          })}
+        </div>
+      )}
+
+      <Modal
+        open={rejectId !== null}
+        onClose={() => setRejectId(null)}
+        title="Reprovar vídeo"
+        footer={
+          <>
+            <button className="btn-ghost" onClick={() => setRejectId(null)}>Cancelar</button>
+            <button className="btn-danger" disabled={reason.trim().length < 3 || busy !== null} onClick={confirmReject}>
+              Reprovar
+            </button>
+          </>
+        }
+      >
+        <label className="label">Motivo da reprovação (o atendente será notificado)</label>
+        <textarea
+          className="textarea"
+          rows={3}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Ex.: áudio baixo, faltou mostrar o produto…"
+        />
+      </Modal>
     </div>
   );
 }
