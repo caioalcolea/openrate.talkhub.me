@@ -178,8 +178,8 @@ export const createProductSchema = z.object({
 });
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 
-// Edição: todos os campos opcionais (patch parcial).
-export const updateProductSchema = createProductSchema.partial();
+// Edição: todos os campos opcionais (patch parcial) + active.
+export const updateProductSchema = createProductSchema.partial().extend({ active: z.boolean().optional() });
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 
 export const createProductVariationSchema = z.object({
@@ -190,6 +190,14 @@ export const createProductVariationSchema = z.object({
   active: z.boolean().optional(),
 });
 export type CreateProductVariationInput = z.infer<typeof createProductVariationSchema>;
+
+export const createProductImageSchema = z.object({
+  storageKey: z.string().min(1).max(300),
+  alt: z.string().max(200).optional(),
+  position: z.number().int().min(0).optional(),
+  isPrimary: z.boolean().optional(),
+});
+export type CreateProductImageInput = z.infer<typeof createProductImageSchema>;
 
 export const upsertStoreInventorySchema = z.object({
   storeId: uuid,
