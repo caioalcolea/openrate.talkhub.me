@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../../lib/auth';
 import { api, ApiError } from '../../../lib/api';
 import { useToast } from '../../../components/toast';
+import { OnboardingChecklist } from '../../../components/onboarding-checklist';
 import { brl } from '../../../lib/format';
 
 interface Dashboard {
@@ -37,6 +38,9 @@ export default function DashboardPage() {
   return (
     <div className="space-y-4">
       <h1>Painel{me?.org?.name ? ` · ${me.org.name}` : ''}</h1>
+
+      <OnboardingChecklist />
+
 
       {!loaded ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
