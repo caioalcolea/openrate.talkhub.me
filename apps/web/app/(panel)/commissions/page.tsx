@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { api, ApiError } from '../../../lib/api';
+import { api, ApiError, downloadFile } from '../../../lib/api';
 import { useToast } from '../../../components/toast';
 import { brl } from '../../../lib/format';
 import { COMMISSION_BASES, type CommissionBase, type CreateCommissionRuleInput } from '@openrate/shared';
@@ -167,7 +167,21 @@ export default function CommissionsPage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="font-semibold">Extrato de lançamentos</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">Extrato de lançamentos</h2>
+          {entries.length > 0 && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() =>
+                downloadFile('/v1/commission-entries/export.csv', 'comissoes.csv').catch((e) =>
+                  toast.error(e instanceof ApiError ? e.message : String(e)),
+                )
+              }
+            >
+              Exportar CSV
+            </button>
+          )}
+        </div>
         <div className="space-y-1">
           {entries.map((e) => (
             <div key={e.id} className="card text-sm">

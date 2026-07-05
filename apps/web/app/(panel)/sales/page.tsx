@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { api, ApiError } from '../../../lib/api';
+import { api, ApiError, downloadFile } from '../../../lib/api';
 import { useToast } from '../../../components/toast';
 import { brl } from '../../../lib/format';
 
@@ -96,7 +96,21 @@ export default function SalesPage() {
       </section>
 
       <section className="space-y-2">
-        <h2 className="font-semibold">Vendas</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">Vendas</h2>
+          {sales && sales.length > 0 && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() =>
+                downloadFile('/v1/affiliate-sales/export.csv', 'vendas-afiliado.csv').catch((e) =>
+                  toast.error(e instanceof ApiError ? e.message : String(e)),
+                )
+              }
+            >
+              Exportar CSV
+            </button>
+          )}
+        </div>
         {sales === null ? (
           <div className="space-y-2">
             {[0, 1, 2].map((i) => (

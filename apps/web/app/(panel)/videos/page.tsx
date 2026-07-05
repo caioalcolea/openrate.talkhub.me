@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { api, ApiError } from '../../../lib/api';
+import { api, ApiError, openSignedUrl } from '../../../lib/api';
 import { useToast } from '../../../components/toast';
 import { Modal } from '../../../components/modal';
 import { dateTime } from '../../../lib/format';
@@ -9,8 +9,12 @@ interface Video {
   id: string;
   status: string;
   duration_seconds: number | null;
+  thumb_key: string | null;
   created_at: string;
 }
+
+// Estados em que o vídeo final já existe no storage (download habilitado).
+const DOWNLOADABLE = new Set(['ready', 'approved', 'published']);
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   processing: { label: 'Processando', cls: 'badge-amber' },
@@ -45,6 +49,17 @@ export default function VideosPage() {
       await api(`/v1/videos/${id}/approve`, { method: 'POST' });
       toast.success('Vídeo aprovado.');
       await load();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function download(id: string, kind: 'final' | 'thumb') {
+    setBusy(id);
+    try {
+      await openSignedUrl(`/v1/videos/${id}/download?kind=${kind}`);
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -100,23 +115,35 @@ export default function VideosPage() {
                   </div>
                   <p className="mt-1 truncate font-mono text-xs text-neutral-400">{v.id}</p>
                 </div>
-                {v.status === 'ready' && (
-                  <div className="flex shrink-0 gap-2">
-                    <button className="btn btn-sm" disabled={busy === v.id} onClick={() => approve(v.id)}>
-                      Aprovar
+                <div className="flex shrink-0 items-center gap-2">
+                  {DOWNLOADABLE.has(v.status) && (
+                    <button className="btn-ghost btn-sm" disabled={busy === v.id} onClick={() => download(v.id, 'final')}>
+                      Baixar
                     </button>
-                    <button
-                      className="btn-danger btn-sm"
-                      disabled={busy === v.id}
-                      onClick={() => {
-                        setRejectId(v.id);
-                        setReason('');
-                      }}
-                    >
-                      Reprovar
+                  )}
+                  {v.thumb_key && (
+                    <button className="btn-ghost btn-sm" disabled={busy === v.id} onClick={() => download(v.id, 'thumb')}>
+                      Thumb
                     </button>
-                  </div>
-                )}
+                  )}
+                  {v.status === 'ready' && (
+                    <>
+                      <button className="btn btn-sm" disabled={busy === v.id} onClick={() => approve(v.id)}>
+                        Aprovar
+                      </button>
+                      <button
+                        className="btn-danger btn-sm"
+                        disabled={busy === v.id}
+                        onClick={() => {
+                          setRejectId(v.id);
+                          setReason('');
+                        }}
+                      >
+                        Reprovar
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             );
           })}

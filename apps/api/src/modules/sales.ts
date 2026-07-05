@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Module, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Header, Module, Param, Post } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import {
   affiliateSaleRowSchema,
@@ -10,6 +10,7 @@ import { CurrentTenant } from '../common/tenant';
 import { Roles } from '../auth/roles.decorator';
 import { notifyUser } from '../common/notify';
 import { QueuesService } from '../queues.service';
+import { toCsv } from '../common/csv';
 import { ingestConfirmedSale, reverseSale, type AffiliateLinkRef } from '../common/commission-ingest';
 
 type CreatorCredit = { userId: string; amount: number };
@@ -181,6 +182,25 @@ class SalesController {
     );
   }
 
+  // Export CSV das vendas de afiliado (conciliação com as plataformas).
+  @Get('affiliate-sales/export.csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="vendas-afiliado.csv"')
+  exportSales(@CurrentTenant() t: TenantContext): Promise<string> {
+    return this.pg.withTenant(t, async (c) => {
+      const r = await c.query(
+        `SELECT id, platform, external_id, status, gross_amount, commissionable_amount, occurred_at
+           FROM openrate.affiliate_sales ORDER BY occurred_at DESC LIMIT 5000`,
+      );
+      return toCsv(
+        ['id', 'plataforma', 'id_externo', 'status', 'valor_bruto', 'valor_comissionavel', 'ocorrido_em'],
+        r.rows.map((x) => [
+          x.id, x.platform, x.external_id, x.status, x.gross_amount, x.commissionable_amount, x.occurred_at,
+        ]),
+      );
+    });
+  }
+
   // Extrato (livro-razão) de lançamentos de comissão.
   @Get('commission-entries')
   listEntries(@CurrentTenant() t: TenantContext) {
@@ -193,6 +213,27 @@ class SalesController {
         )
         .then((r) => r.rows),
     );
+  }
+
+  // Export CSV do livro-razão de comissões (extrato contábil).
+  @Get('commission-entries/export.csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="comissoes.csv"')
+  exportEntries(@CurrentTenant() t: TenantContext): Promise<string> {
+    return this.pg.withTenant(t, async (c) => {
+      const r = await c.query(
+        `SELECT id, affiliate_sale_id, beneficiary_type, user_id, store_id,
+                percentage, base_amount, amount, status, payable_at, reversal_of
+           FROM openrate.commission_entries ORDER BY created_at DESC LIMIT 5000`,
+      );
+      return toCsv(
+        ['id', 'venda_id', 'beneficiario', 'user_id', 'store_id', 'percentual', 'base', 'valor', 'status', 'pagavel_em', 'estorno_de'],
+        r.rows.map((x) => [
+          x.id, x.affiliate_sale_id, x.beneficiary_type, x.user_id, x.store_id,
+          x.percentage, x.base_amount, x.amount, x.status, x.payable_at, x.reversal_of,
+        ]),
+      );
+    });
   }
 
   // Estorno de venda (cancelamento/devolução): lança espelhos negativos.

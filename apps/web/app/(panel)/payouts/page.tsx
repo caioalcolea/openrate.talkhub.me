@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { api, ApiError } from '../../../lib/api';
+import { api, ApiError, downloadFile, openSignedUrl } from '../../../lib/api';
 import { useToast } from '../../../components/toast';
 import { Modal } from '../../../components/modal';
 import { brl, date } from '../../../lib/format';
@@ -69,6 +69,25 @@ export default function PayoutsPage() {
     }
   }
 
+  async function receipt(id: string) {
+    setBusy(id);
+    try {
+      await openSignedUrl(`/v1/payouts/${id}/receipt`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function exportCsv() {
+    try {
+      await downloadFile('/v1/payouts/export.csv', 'payouts.csv');
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
   async function confirmPay() {
     if (!payId) return;
     const id = payId;
@@ -102,6 +121,7 @@ export default function PayoutsPage() {
           {busy === 'close' ? 'Fechando…' : 'Fechar período'}
         </button>
         <button className="btn-ghost" onClick={() => void load()}>Atualizar</button>
+        <button className="btn-ghost ml-auto" onClick={exportCsv}>Exportar CSV</button>
       </div>
 
       {payouts === null ? (
@@ -147,6 +167,11 @@ export default function PayoutsPage() {
                       }}
                     >
                       Registrar pagamento
+                    </button>
+                  )}
+                  {p.status === 'paid' && (
+                    <button className="btn-ghost btn-sm" disabled={busy === p.id} onClick={() => receipt(p.id)}>
+                      {busy === p.id ? '…' : 'Recibo'}
                     </button>
                   )}
                 </div>

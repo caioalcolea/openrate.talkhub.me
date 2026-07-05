@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { api, ApiError } from '../../../../lib/api';
+import { api, ApiError, openSignedUrl } from '../../../../lib/api';
 import { useToast } from '../../../../components/toast';
 import { Modal } from '../../../../components/modal';
 import { dateTime } from '../../../../lib/format';
@@ -109,17 +109,31 @@ export default function MyVideos() {
                 <span className={`badge ${s.cls}`}>{s.label}</span>
                 <span className="text-xs text-neutral-500">{dateTime(v.created_at)}</span>
               </div>
-              {v.status === 'approved' && (
-                <button
-                  className="btn btn-sm mt-3"
-                  onClick={() => {
-                    setPubId(v.id);
-                    setPlatform('tiktok');
-                    setDestinationUrl('');
-                  }}
-                >
-                  Registrar publicação + gerar link
-                </button>
+              {(v.status === 'approved' || v.status === 'published') && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    className="btn-ghost btn-sm"
+                    onClick={() =>
+                      openSignedUrl(`/v1/videos/${v.id}/download`).catch((e) =>
+                        toast.error(e instanceof ApiError ? e.message : String(e)),
+                      )
+                    }
+                  >
+                    Baixar vídeo
+                  </button>
+                  {v.status === 'approved' && (
+                    <button
+                      className="btn btn-sm"
+                      onClick={() => {
+                        setPubId(v.id);
+                        setPlatform('tiktok');
+                        setDestinationUrl('');
+                      }}
+                    >
+                      Registrar publicação + gerar link
+                    </button>
+                  )}
+                </div>
               )}
               {links[v.id] && (
                 <button

@@ -80,12 +80,26 @@ export class S3Service {
     );
   }
 
-  // Presigned GET (leitura) de curta duração para o player/painel.
-  async presignGet(key: string, expiresIn = 900): Promise<string> {
+  // Presigned GET (leitura) de curta duração para o player/painel. Quando
+  // downloadName é informado, força o browser a baixar (Content-Disposition).
+  async presignGet(key: string, expiresIn = 900, downloadName?: string): Promise<string> {
     return getSignedUrl(
       this.publicClient,
-      new GetObjectCommand({ Bucket: env.s3Bucket, Key: key }),
+      new GetObjectCommand({
+        Bucket: env.s3Bucket,
+        Key: key,
+        ...(downloadName
+          ? { ResponseContentDisposition: `attachment; filename="${downloadName.replace(/"/g, '')}"` }
+          : {}),
+      }),
       { expiresIn },
+    );
+  }
+
+  // Upload server-side (a mídia é gerada na API, ex.: recibo PDF de payout).
+  async putObject(key: string, body: Buffer, contentType: string): Promise<void> {
+    await this.internal.send(
+      new PutObjectCommand({ Bucket: env.s3Bucket, Key: key, Body: body, ContentType: contentType }),
     );
   }
 }

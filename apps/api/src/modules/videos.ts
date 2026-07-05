@@ -4,8 +4,10 @@ import {
   Get,
   HttpCode,
   Module,
+  NotFoundException,
   Param,
   Post,
+  Query,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
@@ -114,6 +116,28 @@ class VideosController {
     const finalUrl = video.final_key ? await this.s3.presignGet(video.final_key) : null;
     const thumbUrl = video.thumb_key ? await this.s3.presignGet(video.thumb_key) : null;
     return { ...video, finalUrl, thumbUrl };
+  }
+
+  // Download forçado (Content-Disposition attachment). kind=final (default) |
+  // thumb. Cai no raw_key se o vídeo final ainda não existir.
+  @Get(':id/download')
+  async download(
+    @CurrentTenant() t: TenantContext,
+    @Param('id') id: string,
+    @Query('kind') kind?: string,
+  ): Promise<{ url: string }> {
+    const v = await this.pg.withTenant(t, (c) =>
+      c
+        .query('SELECT final_key, thumb_key, raw_key FROM openrate.videos WHERE id = $1', [id])
+        .then((r) => r.rows[0] ?? null),
+    );
+    if (!v) throw new NotFoundException('vídeo não encontrado');
+    const which = kind === 'thumb' ? 'thumb' : 'final';
+    const key: string | null = which === 'thumb' ? v.thumb_key : (v.final_key ?? v.raw_key);
+    if (!key) throw new NotFoundException('arquivo não disponível');
+    const ext = which === 'thumb' ? 'jpg' : key.endsWith('.webm') ? 'webm' : 'mp4';
+    const url = await this.s3.presignGet(key, 900, `video-${id}.${ext}`);
+    return { url };
   }
 
   @Post(':id/approve')
