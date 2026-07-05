@@ -6,6 +6,7 @@ import {
   Header,
   Module,
   NotFoundException,
+  NotImplementedException,
   Param,
   Post,
   Query,
@@ -13,6 +14,7 @@ import {
 import { payPayoutSchema, type PayPayoutInput, type TenantContext } from '@openrate/shared';
 import { PgService } from '../common/pg.service';
 import { S3Service } from '../common/s3';
+import { env } from '../common/env';
 import { CurrentTenant } from '../common/tenant';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { Roles } from '../auth/roles.decorator';
@@ -98,6 +100,35 @@ class PayoutsController {
         ]),
       );
     });
+  }
+
+  // Pagamento automático via Asaas (fase Escala). Enquanto a integração não está
+  // habilitada, responde 501 e o gestor usa o "Registrar pagamento" manual.
+  @Post(':id/pay-pix')
+  @Roles('manager')
+  async payPix(
+    @CurrentTenant() t: TenantContext,
+    @Param('id') id: string,
+  ): Promise<{ payoutId: string; status: string }> {
+    if (!env.integrations.asaas) {
+      throw new NotImplementedException(
+        'Pagamento automático via Asaas não habilitado (fase Escala). Use "Registrar pagamento".',
+      );
+    }
+    if (!t.orgId) throw new BadRequestException('org ausente');
+    const status = await this.pg.withTenant(t, async (c) => {
+      const r = await c.query<{ status: string }>(
+        `UPDATE openrate.payouts SET status = 'processing'
+           WHERE id = $1 AND status = 'approved' RETURNING status`,
+        [id],
+      );
+      if ((r.rowCount ?? 0) === 0) throw new BadRequestException('payout precisa estar aprovado');
+      return r.rows[0].status;
+    });
+    // SEM retry automático (financeiro): o worker processa e o webhook do Asaas
+    // conclui para 'paid'/'failed'. Reprocesso manual via Bull Board.
+    await this.queues.enqueuePayoutPix({ orgId: t.orgId, correlationId: t.correlationId, payoutId: id });
+    return { payoutId: id, status };
   }
 
   // Recibo em PDF do repasse já pago. Gera sob demanda e cacheia em receipt_key.

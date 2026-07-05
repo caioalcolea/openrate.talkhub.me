@@ -24,6 +24,7 @@ import { DashboardModule } from './modules/dashboard';
 import { CustomersModule } from './modules/customers';
 import { StoreSalesModule } from './modules/store-sales';
 import { AuditModule } from './modules/audit';
+import { IntegrationsModule } from './modules/integrations';
 import { WebhooksModule } from './modules/webhooks';
 
 @Module({
@@ -50,6 +51,7 @@ import { WebhooksModule } from './modules/webhooks';
     CustomersModule,
     StoreSalesModule,
     AuditModule,
+    IntegrationsModule,
     WebhooksModule,
   ],
   providers: [

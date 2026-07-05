@@ -20,6 +20,15 @@ export const env = {
   asaasWebhookToken: process.env.ASAAS_WEBHOOK_TOKEN ?? '',
   docusealWebhookToken: process.env.DOCUSEAL_WEBHOOK_TOKEN ?? '',
 
+  // Integrações da fase Escala (stubs): cada uma só é considerada HABILITADA
+  // quando a credencial/flag existe. Enquanto off, os endpoints de disparo
+  // respondem "não habilitado" (501) em vez de enfileirar jobs inertes.
+  integrations: {
+    asaas: !!process.env.ASAAS_API_KEY,
+    olist: !!process.env.OLIST_API_KEY,
+    metricsSync: process.env.METRICS_SYNC_ENABLED === 'true',
+  },
+
   // URL pública da própria API (base dos links de afiliado /r/:code).
   apiPublicUrl: process.env.API_PUBLIC_URL ?? 'https://openrate-api.talkhub.me',
 

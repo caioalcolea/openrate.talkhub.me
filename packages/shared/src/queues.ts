@@ -7,6 +7,7 @@ export const QUEUES = {
   metricsSync: 'metrics-sync',
   commissionSettlement: 'commission-settlement',
   payoutPix: 'payout-pix',
+  olistSync: 'olist-sync',
   notifications: 'notifications',
 } as const;
 
@@ -28,6 +29,8 @@ export const jobIds = {
   commissionSettlement: (orgId: string, period: string) =>
     `commission-settlement:${orgId}:${period}`,
   payoutPix: (payoutId: string) => `payout-pix:${payoutId}`,
+  olistSync: (orgId: string, kind: string, isoWindow: string) =>
+    `olist-sync:${orgId}:${kind}:${isoWindow}`,
   notification: (event: string, entityId: string) => `notifications:${event}:${entityId}`,
 };
 
@@ -75,6 +78,11 @@ export interface PayoutPixJob extends JobTenant {
   payoutId: string;
 }
 
+export interface OlistSyncJob extends JobTenant {
+  kind: 'products' | 'sales'; // catálogo ou vendas de balcão (source='erp')
+  since?: string | null; // ISO — sincronização incremental
+}
+
 // Política de retries/backoff por fila (BullMQ defaultJobOptions).
 // payout-pix NÃO tem retry automático (dinheiro): reprocesso manual no Bull Board.
 export const QUEUE_JOB_OPTIONS: Record<QueueName, { attempts: number; backoffMs?: number }> = {
@@ -83,6 +91,7 @@ export const QUEUE_JOB_OPTIONS: Record<QueueName, { attempts: number; backoffMs?
   'metrics-sync': { attempts: 3, backoffMs: 60_000 },
   'commission-settlement': { attempts: 2, backoffMs: 300_000 },
   'payout-pix': { attempts: 1 },
+  'olist-sync': { attempts: 3, backoffMs: 60_000 },
   notifications: { attempts: 5, backoffMs: 10_000 },
 };
 
@@ -95,5 +104,6 @@ export const DEFAULT_QUEUE_CONCURRENCY: Record<QueueName, number> = {
   'metrics-sync': 2,
   'commission-settlement': 1,
   'payout-pix': 1,
+  'olist-sync': 1,
   notifications: 5,
 };

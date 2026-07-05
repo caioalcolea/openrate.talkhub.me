@@ -7,7 +7,7 @@ import { processAiScript } from './processors/ai-script-generation';
 import { processVideo } from './processors/video-processing';
 import { processNotification } from './processors/notifications';
 import { processCommissionSettlement } from './processors/settlement';
-import { processMetricsSync, processPayoutPix } from './processors/stubs';
+import { processMetricsSync, processPayoutPix, processOlistSync } from './processors/stubs';
 
 // Concorrência efetiva: env CONCURRENCY_* sobrepõe os defaults do shared.
 function concurrency(queue: QueueName): number {
@@ -18,6 +18,7 @@ function concurrency(queue: QueueName): number {
     notifications: process.env.CONCURRENCY_NOTIFICATIONS,
     'commission-settlement': undefined,
     'payout-pix': undefined,
+    'olist-sync': undefined,
   };
   const v = map[queue];
   return v ? Number(v) : DEFAULT_QUEUE_CONCURRENCY[queue];
@@ -30,6 +31,7 @@ const handlers: Record<QueueName, (job: Job<any>) => Promise<void>> = {
   'metrics-sync': processMetricsSync,
   'commission-settlement': processCommissionSettlement,
   'payout-pix': processPayoutPix,
+  'olist-sync': processOlistSync,
   notifications: processNotification,
 };
 
