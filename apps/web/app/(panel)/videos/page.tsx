@@ -4,6 +4,7 @@ import { api, ApiError, openSignedUrl } from '../../../lib/api';
 import { useToast } from '../../../components/toast';
 import { Modal } from '../../../components/modal';
 import { dateTime } from '../../../lib/format';
+import { useListControls, Pager } from '../../../components/list-controls';
 
 interface Video {
   id: string;
@@ -30,6 +31,7 @@ export default function VideosPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [reason, setReason] = useState('');
+  const [status, setStatus] = useState('');
 
   async function load() {
     try {
@@ -84,9 +86,28 @@ export default function VideosPage() {
     }
   }
 
+  const base = (items ?? []).filter((v) => !status || v.status === status);
+  const { page, setPage, pageItems, total, totalPages } = useListControls<Video>(base, undefined, 20);
+
   return (
     <div className="space-y-4">
       <h1>Fila de aprovação de vídeos</h1>
+
+      <div className="card flex flex-wrap items-end gap-3">
+        <div className="min-w-[12rem]">
+          <label className="label">Status</label>
+          <select className="select" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
+            <option value="">Todos</option>
+            <option value="processing">Processando</option>
+            <option value="ready">Aguardando aprovação</option>
+            <option value="approved">Aprovado</option>
+            <option value="published">Publicado</option>
+            <option value="rejected">Reprovado</option>
+            <option value="failed">Falhou</option>
+          </select>
+        </div>
+        <button className="btn-ghost" onClick={() => void load()}>Atualizar</button>
+      </div>
 
       {items === null ? (
         <div className="space-y-2">
@@ -94,14 +115,17 @@ export default function VideosPage() {
             <div key={i} className="skeleton h-16 w-full" />
           ))}
         </div>
-      ) : items.length === 0 ? (
+      ) : total === 0 ? (
         <div className="empty">
           <span className="text-2xl">🎬</span>
-          Nenhum vídeo ainda. Assim que um atendente gravar e enviar, ele aparece aqui para aprovação.
+          {items.length === 0
+            ? 'Nenhum vídeo ainda. Assim que um atendente gravar e enviar, ele aparece aqui para aprovação.'
+            : 'Nenhum vídeo com esse status.'}
         </div>
       ) : (
+        <>
         <div className="space-y-2">
-          {items.map((v) => {
+          {pageItems.map((v) => {
             const s = STATUS[v.status] ?? { label: v.status, cls: 'badge-neutral' };
             return (
               <div key={v.id} className="card flex items-center justify-between gap-4">
@@ -148,6 +172,8 @@ export default function VideosPage() {
             );
           })}
         </div>
+        <Pager page={page} totalPages={totalPages} total={total} onPage={setPage} />
+        </>
       )}
 
       <Modal

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api, ApiError, downloadFile } from '../../../lib/api';
 import { useToast } from '../../../components/toast';
 import { brl } from '../../../lib/format';
+import { useListControls, Pager } from '../../../components/list-controls';
 
 interface Sale {
   id: string;
@@ -66,6 +67,12 @@ export default function SalesPage() {
     }
   }
 
+  const { query, setQuery, page, setPage, pageItems, total, totalPages } = useListControls(
+    sales ?? [],
+    (s, q) => s.platform.toLowerCase().includes(q) || s.external_id.toLowerCase().includes(q) || s.status.toLowerCase().includes(q),
+    20,
+  );
+
   return (
     <div className="space-y-6">
       <h1>Vendas de afiliado</h1>
@@ -96,7 +103,7 @@ export default function SalesPage() {
       </section>
 
       <section className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-semibold">Vendas</h2>
           {sales && sales.length > 0 && (
             <button
@@ -111,6 +118,14 @@ export default function SalesPage() {
             </button>
           )}
         </div>
+        {sales && sales.length > 0 && (
+          <input
+            className="input"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar por plataforma, ID externo ou status…"
+          />
+        )}
         {sales === null ? (
           <div className="space-y-2">
             {[0, 1, 2].map((i) => (
@@ -122,21 +137,26 @@ export default function SalesPage() {
             <span className="text-2xl">🧾</span>
             Nenhuma venda importada ainda. Cole um CSV acima para começar.
           </div>
+        ) : total === 0 ? (
+          <div className="empty">Nenhuma venda corresponde à busca.</div>
         ) : (
-          sales.map((s) => {
-            const st = STATUS[s.status] ?? { label: s.status, cls: 'badge-neutral' };
-            return (
-              <div key={s.id} className="card flex items-center justify-between gap-4 text-sm">
-                <span className="min-w-0 truncate">
-                  {s.platform} · {s.external_id}
-                </span>
-                <span className="flex shrink-0 items-center gap-2">
-                  <b>{brl(s.gross_amount)}</b>
-                  <span className={`badge ${st.cls}`}>{st.label}</span>
-                </span>
-              </div>
-            );
-          })
+          <>
+            {pageItems.map((s) => {
+              const st = STATUS[s.status] ?? { label: s.status, cls: 'badge-neutral' };
+              return (
+                <div key={s.id} className="card flex items-center justify-between gap-4 text-sm">
+                  <span className="min-w-0 truncate">
+                    {s.platform} · {s.external_id}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <b>{brl(s.gross_amount)}</b>
+                    <span className={`badge ${st.cls}`}>{st.label}</span>
+                  </span>
+                </div>
+              );
+            })}
+            <Pager page={page} totalPages={totalPages} total={total} onPage={setPage} />
+          </>
         )}
       </section>
     </div>

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { api, ApiError } from '../../../lib/api';
 import { useToast } from '../../../components/toast';
 import { brl } from '../../../lib/format';
+import { useListControls, Pager } from '../../../components/list-controls';
 
 interface Product {
   id: string;
@@ -48,6 +49,9 @@ export default function ProductsPage() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId, scope]);
+
+  // Busca/filtros são server-side; aqui só paginamos o resultado já carregado.
+  const { page, setPage, pageItems, total, totalPages } = useListControls<Product>(items ?? [], undefined, 12);
 
   return (
     <div className="space-y-4">
@@ -95,8 +99,9 @@ export default function ProductsPage() {
           Nenhum produto. Clique em “Novo produto” para cadastrar.
         </div>
       ) : (
+        <>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {items.map((p) => (
+          {pageItems.map((p) => (
             <div key={p.id} className="card flex items-center gap-3">
               {p.thumbUrl ? (
                 <img src={p.thumbUrl} alt="" className="h-12 w-12 shrink-0 rounded-lg object-cover" />
@@ -118,6 +123,8 @@ export default function ProductsPage() {
             </div>
           ))}
         </div>
+        <Pager page={page} totalPages={totalPages} total={total} onPage={setPage} />
+        </>
       )}
     </div>
   );

@@ -22,6 +22,7 @@ const NAV: NavItem[] = [
   { href: '/products', label: 'Produtos', icon: <I d="M20 7L12 3 4 7m16 0l-8 4-8-4m16 0v10l-8 4-8-4V7" /> },
   { href: '/catalog', label: 'Catálogo', icon: <I d="M4 6h16M4 12h16M4 18h10M18 16l3 3-3 3" /> },
   { href: '/videos', label: 'Vídeos', icon: <I d="M15 10l4.5-2.5v9L15 14M4 6h9a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z" /> },
+  { href: '/publications', label: 'Publicações', icon: <I d="M10 13a5 5 0 007.07 0l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.07 0l-3 3a5 5 0 007.07 7.07l1.71-1.71" /> },
   { href: '/goals', label: 'Metas', icon: <I d="M12 12l7-7m-7 7a3 3 0 100 .01M12 3a9 9 0 109 9" /> },
   { href: '/users', label: 'Usuários', icon: <I d="M17 20v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 8a4 4 0 100-8 4 4 0 000 8m14 12v-2a4 4 0 00-3-3.87M16 0.13a4 4 0 010 7.75" /> },
   { href: '/customers', label: 'Clientes', icon: <I d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8M22 21v-2a4 4 0 00-3-3.87" /> },
