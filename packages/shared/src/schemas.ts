@@ -280,6 +280,8 @@ export const createIdeaSchema = z.object({
   targetDurationSeconds: z.number().int().positive().max(180).optional(),
 });
 export type CreateIdeaInput = z.infer<typeof createIdeaSchema>;
+export const updateIdeaSchema = createIdeaSchema.partial().extend({ archived: z.boolean().optional() });
+export type UpdateIdeaInput = z.infer<typeof updateIdeaSchema>;
 
 // Início de upload de vídeo: a API cria o registro + presigned multipart.
 export const startVideoUploadSchema = z.object({
