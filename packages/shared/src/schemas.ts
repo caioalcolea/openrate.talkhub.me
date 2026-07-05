@@ -5,6 +5,7 @@ import {
   USER_ROLES,
   PUBLICATION_PLATFORMS,
   GOAL_PERIODS,
+  GOAL_METRICS,
 } from './enums';
 
 // ---------------------------------------------------------------------------
@@ -142,8 +143,8 @@ export const createGoalSchema = z.object({
   storeId: uuid.nullable().optional(),
   userId: uuid.nullable().optional(),
   period: z.enum(GOAL_PERIODS).default('daily'),
-  targetVideos: z.number().int().min(1).max(1000),
-  targetSalesAmount: money.optional(),
+  metric: z.enum(GOAL_METRICS),
+  targetValue: z.number().positive(),
 });
 export type CreateGoalInput = z.infer<typeof createGoalSchema>;
 

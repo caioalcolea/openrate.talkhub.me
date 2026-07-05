@@ -68,6 +68,15 @@ export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
 export const GOAL_PERIODS = ['daily', 'weekly', 'monthly'] as const;
 export type GoalPeriod = (typeof GOAL_PERIODS)[number];
 
+// Métrica medida por uma meta (ver v_goal_progress_daily / migration 0007).
+export const GOAL_METRICS = [
+  'videos_recorded',
+  'videos_published',
+  'views',
+  'affiliate_revenue',
+] as const;
+export type GoalMetric = (typeof GOAL_METRICS)[number];
+
 export const INTEGRATION_PROVIDERS = [
   'olist',
   'tiny',

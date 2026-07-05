@@ -18,7 +18,7 @@ class GoalsController {
     return this.pg.withTenant(t, (c) =>
       c
         .query(
-          'SELECT id, store_id, user_id, period, target_videos, target_sales_amount, active FROM openrate.goals WHERE active = true',
+          'SELECT id, store_id, user_id, name, period, metric, target_value, active FROM openrate.goals WHERE active = true',
         )
         .then((r) => r.rows),
     );
@@ -35,7 +35,7 @@ class GoalsController {
       c
         .query(
           `INSERT INTO openrate.goals
-             (organization_id, store_id, user_id, name, period, target_videos, target_sales_amount, created_by)
+             (organization_id, store_id, user_id, name, period, metric, target_value, created_by)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
           [
             t.orgId,
@@ -43,8 +43,8 @@ class GoalsController {
             dto.userId ?? null,
             dto.name,
             dto.period,
-            dto.targetVideos,
-            dto.targetSalesAmount ?? null,
+            dto.metric,
+            dto.targetValue,
             t.userId,
           ],
         )
