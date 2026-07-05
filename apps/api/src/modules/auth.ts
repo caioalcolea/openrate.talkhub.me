@@ -20,7 +20,9 @@ import { hashPassword, verifyPassword } from '../common/password';
 import {
   OPENRATE_PRODUCT,
   updatePixSchema,
+  changePasswordSchema,
   type UpdatePixInput,
+  type ChangePasswordInput,
   type TenantContext,
 } from '@openrate/shared';
 
@@ -208,6 +210,34 @@ class AuthController {
       role: t.role,
     });
   }
+
+  // Troca de senha do próprio usuário. No 1º acesso (must_change_password=true) não
+  // exige a senha atual; depois disso, exige e valida a atual.
+  @Post('change-password')
+  async changePassword(
+    @CurrentTenant() t: TenantContext,
+    @Body(new ZodValidationPipe(changePasswordSchema)) dto: ChangePasswordInput,
+  ): Promise<{ ok: true }> {
+    return this.pg.withTenant(t, async (c) => {
+      const r = await c.query<{ password_hash: string | null; must_change_password: boolean }>(
+        'SELECT password_hash, must_change_password FROM openrate.users WHERE id = $1',
+        [t.userId],
+      );
+      const u = r.rows[0];
+      if (!u) throw new UnauthorizedException('usuário não encontrado');
+      if (!u.must_change_password) {
+        if (!dto.currentPassword || !(await verifyPassword(dto.currentPassword, u.password_hash))) {
+          throw new UnauthorizedException('senha atual incorreta');
+        }
+      }
+      const hash = await hashPassword(dto.newPassword);
+      await c.query(
+        'UPDATE openrate.users SET password_hash = $2, must_change_password = false WHERE id = $1',
+        [t.userId, hash],
+      );
+      return { ok: true };
+    });
+  }
 }
 
 @Controller()
@@ -218,7 +248,7 @@ class MeController {
   async me(@CurrentTenant() t: TenantContext): Promise<unknown> {
     return this.pg.withTenant(t, async (c) => {
       const user = await c.query(
-        'SELECT id, email, full_name, role, phone, image_release_status FROM openrate.users WHERE id = $1',
+        'SELECT id, email, full_name, role, phone, image_release_status, must_change_password FROM openrate.users WHERE id = $1',
         [t.userId],
       );
       const org = t.orgId

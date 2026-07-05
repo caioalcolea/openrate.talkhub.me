@@ -1,13 +1,26 @@
 'use client';
 import Link from 'next/link';
-import { AuthProvider } from '../../lib/auth';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
+import { AuthProvider, useAuth } from '../../lib/auth';
 import { ToastProvider } from '../../components/toast';
+
+// Redireciona para a troca de senha obrigatória no 1º acesso.
+function ChangePasswordGuard() {
+  const { me } = useAuth();
+  const router = useRouter();
+  useEffect(() => {
+    if (me?.user.must_change_password) router.replace('/change-password');
+  }, [me, router]);
+  return null;
+}
 
 // Shell mobile-first do PWA do atendente.
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
       <ToastProvider>
+        <ChangePasswordGuard />
         <div className="mx-auto flex min-h-screen max-w-md flex-col">
           <header className="flex items-center justify-between border-b bg-white px-4 py-3">
             <Link href="/app" className="font-semibold text-brand">OpenRate</Link>

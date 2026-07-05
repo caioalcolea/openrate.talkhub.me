@@ -4,7 +4,7 @@ import type { UserRole } from '@openrate/shared';
 import { api, setTokens, clearTokens, getToken, switchOrg as apiSwitchOrg } from './api';
 
 interface Me {
-  user: { id: string; email?: string; full_name?: string; role: UserRole };
+  user: { id: string; email?: string; full_name?: string; role: UserRole; must_change_password?: boolean };
   org: { id: string; name: string } | null;
   store: { id: string; name: string } | null;
   role: UserRole;

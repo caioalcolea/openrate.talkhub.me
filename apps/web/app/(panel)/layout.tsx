@@ -21,6 +21,7 @@ const NAV: NavItem[] = [
   { href: '/products', label: 'Produtos', icon: <I d="M20 7L12 3 4 7m16 0l-8 4-8-4m16 0v10l-8 4-8-4V7" /> },
   { href: '/videos', label: 'Vídeos', icon: <I d="M15 10l4.5-2.5v9L15 14M4 6h9a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z" /> },
   { href: '/goals', label: 'Metas', icon: <I d="M12 12l7-7m-7 7a3 3 0 100 .01M12 3a9 9 0 109 9" /> },
+  { href: '/users', label: 'Usuários', icon: <I d="M17 20v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 8a4 4 0 100-8 4 4 0 000 8m14 12v-2a4 4 0 00-3-3.87M16 0.13a4 4 0 010 7.75" /> },
   { href: '/sales', label: 'Vendas', icon: <I d="M3 3v18h18M7 15l3-3 3 3 5-6" /> },
   { href: '/commissions', label: 'Comissões', icon: <I d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" /> },
   { href: '/payouts', label: 'Pagamentos', icon: <I d="M2 7h20v10H2zM2 11h20M6 15h4" /> },
@@ -33,7 +34,9 @@ function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!loading && !me) router.replace('/login');
+    if (loading) return;
+    if (!me) router.replace('/login');
+    else if (me.user.must_change_password) router.replace('/change-password');
   }, [loading, me, router]);
 
   if (loading) {

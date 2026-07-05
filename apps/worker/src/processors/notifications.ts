@@ -22,6 +22,10 @@ function render(template: string, vars: Record<string, string | number>): string
       return `Seu pagamento de R$ ${vars.amount ?? '0,00'} foi realizado via Pix. ✅`;
     case 'image_release':
       return 'Assine o termo de cessão de imagem para começar a publicar: ' + (vars.url ?? '');
+    case 'user_invited':
+      return `Você foi convidado para o OpenRate. Entre com ${vars.email ?? 'seu e-mail'} e a senha temporária ${vars.tempPassword ?? '—'} — será pedido para trocá-la no 1º acesso.`;
+    case 'password_reset':
+      return `Sua senha do OpenRate foi redefinida. Nova senha temporária: ${vars.tempPassword ?? '—'} — troque-a no próximo acesso.`;
     default:
       return String(vars.body ?? 'Você tem uma notificação no OpenRate.');
   }

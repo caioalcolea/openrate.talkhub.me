@@ -130,6 +130,16 @@ export const changePasswordSchema = z.object({
 });
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 
+export const updateUserSchema = z.object({
+  fullName: z.string().min(2).max(160).optional(),
+  phone: z.string().max(20).nullable().optional(),
+  role: z.enum(USER_ROLES).optional(),
+  active: z.boolean().optional(),
+  storeIds: z.array(uuid).max(200).optional(), // substitui os vínculos em user_stores
+  defaultStoreId: uuid.nullable().optional(),
+});
+export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+
 // --- Produto (formulário em abas) ---
 export const createProductSchema = z.object({
   name: z.string().min(2).max(240),
