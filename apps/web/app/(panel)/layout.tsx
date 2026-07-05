@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { AuthProvider, useAuth } from '../../lib/auth';
 import { ToastProvider } from '../../components/toast';
+import { NotificationsBell } from '../../components/notifications-bell';
 
 type NavItem = { href: string; label: string; icon: JSX.Element; superOnly?: boolean };
 
@@ -60,6 +61,9 @@ function Shell({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-2 px-5 py-4">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white">O</span>
           <span className="text-lg font-semibold tracking-tight">OpenRate</span>
+          <div className="ml-auto">
+            <NotificationsBell align="left" />
+          </div>
         </div>
         <nav className="flex-1 space-y-1 px-3 py-2">
           {items.map((n) => (
@@ -95,7 +99,10 @@ function Shell({ children }: { children: React.ReactNode }) {
       {/* Top bar (mobile) */}
       <header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-3 md:hidden">
         <span className="text-lg font-semibold">OpenRate</span>
-        <button className="btn-ghost btn-sm" onClick={logout}>Sair</button>
+        <div className="flex items-center gap-1">
+          <NotificationsBell align="right" />
+          <button className="btn-ghost btn-sm" onClick={logout}>Sair</button>
+        </div>
       </header>
       <nav className="flex gap-1 overflow-x-auto border-b border-neutral-200 bg-white px-2 py-2 md:hidden">
         {items.map((n) => (

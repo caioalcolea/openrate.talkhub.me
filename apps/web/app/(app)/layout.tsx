@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { AuthProvider, useAuth } from '../../lib/auth';
 import { ToastProvider } from '../../components/toast';
+import { NotificationsBell } from '../../components/notifications-bell';
 
 // Redireciona para a troca de senha obrigatória no 1º acesso.
 function ChangePasswordGuard() {
@@ -24,7 +25,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="mx-auto flex min-h-screen max-w-md flex-col">
           <header className="flex items-center justify-between border-b bg-white px-4 py-3">
             <Link href="/app" className="font-semibold text-brand">OpenRate</Link>
-            <Link href="/app/my-videos" className="text-sm text-neutral-600">Meus vídeos</Link>
+            <div className="flex items-center gap-2">
+              <NotificationsBell align="right" />
+              <Link href="/app/my-videos" className="text-sm text-neutral-600">Meus vídeos</Link>
+            </div>
           </header>
           <main className="flex-1 p-4">{children}</main>
           <nav className="grid grid-cols-4 border-t bg-white text-center text-xs">
