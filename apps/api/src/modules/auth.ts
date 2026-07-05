@@ -206,7 +206,10 @@ class AuthController {
       id: t.userId,
       email: found.email ?? '',
       organization_id: body.orgId,
-      store_id: null,
+      // super_admin entra na org sem escopo de loja (visão org-wide, por design).
+      // Os demais papéis PRESERVAM seu store_id: sem isso, um manager de loja se
+      // re-emitiria um token sem escopo e veria agregados de toda a organização.
+      store_id: t.role === 'super_admin' ? null : t.storeId,
       role: t.role,
     });
   }
