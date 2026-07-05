@@ -21,6 +21,7 @@ import { PgService } from '../common/pg.service';
 import { S3Service } from '../common/s3';
 import { CurrentTenant } from '../common/tenant';
 import { ZodValidationPipe } from '../common/zod.pipe';
+import { notifyUser } from '../common/notify';
 import { QueuesService } from '../queues.service';
 import { Roles } from '../auth/roles.decorator';
 
@@ -117,34 +118,68 @@ class VideosController {
 
   @Post(':id/approve')
   @Roles('manager')
-  approve(@CurrentTenant() t: TenantContext, @Param('id') id: string) {
-    return this.pg.withTenant(t, (c) =>
-      c
-        .query(
-          `UPDATE openrate.videos SET status = 'approved', approved_at = now(), approved_by = $2
-             WHERE id = $1 AND status = 'ready' RETURNING id, status`,
-          [id, t.userId],
-        )
-        .then((r) => r.rows[0] ?? null),
-    );
+  async approve(@CurrentTenant() t: TenantContext, @Param('id') id: string) {
+    const info = await this.pg.withTenant(t, async (c) => {
+      const r = await c.query<{ user_id: string }>(
+        `UPDATE openrate.videos SET status = 'approved', approved_at = now(), approved_by = $2
+           WHERE id = $1 AND status = 'ready' RETURNING user_id`,
+        [id, t.userId],
+      );
+      if ((r.rowCount ?? 0) === 0) return null;
+      const creator = r.rows[0].user_id;
+      // Meta do dia batida? (idempotente por dia — não repete a notificação)
+      const met = await c.query('SELECT 1 FROM openrate.v_goal_progress_daily WHERE user_id = $1 AND goal_met LIMIT 1', [creator]);
+      let goalReached = false;
+      if ((met.rowCount ?? 0) > 0) {
+        const dup = await c.query(
+          `SELECT 1 FROM openrate.notifications
+            WHERE user_id = $1 AND template = 'goal_reached'
+              AND created_at::date = (now() AT TIME ZONE 'America/Sao_Paulo')::date LIMIT 1`,
+          [creator],
+        );
+        goalReached = (dup.rowCount ?? 0) === 0;
+      }
+      return { creator, goalReached };
+    });
+    if (!info) return null;
+    await notifyUser(this.pg, this.queues, t, {
+      userId: info.creator,
+      template: 'video_approved',
+      body: 'Boa! Seu vídeo foi aprovado e já pode ser publicado.',
+    });
+    if (info.goalReached) {
+      await notifyUser(this.pg, this.queues, t, {
+        userId: info.creator,
+        template: 'goal_reached',
+        body: 'Meta do dia batida! 🎯 Parabéns.',
+      });
+    }
+    return { id, status: 'approved' };
   }
 
   @Post(':id/reject')
   @Roles('manager')
-  reject(
+  async reject(
     @CurrentTenant() t: TenantContext,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(rejectVideoSchema)) dto: { reason: string },
   ) {
-    return this.pg.withTenant(t, (c) =>
-      c
-        .query(
-          `UPDATE openrate.videos SET status = 'rejected', rejected_reason = $2
-             WHERE id = $1 RETURNING id, status`,
-          [id, dto.reason],
-        )
-        .then((r) => r.rows[0] ?? null),
-    );
+    const creator = await this.pg.withTenant(t, async (c) => {
+      const r = await c.query<{ user_id: string }>(
+        `UPDATE openrate.videos SET status = 'rejected', rejected_reason = $2
+           WHERE id = $1 RETURNING user_id`,
+        [id, dto.reason],
+      );
+      return r.rows[0]?.user_id ?? null;
+    });
+    if (!creator) return null;
+    await notifyUser(this.pg, this.queues, t, {
+      userId: creator,
+      template: 'video_rejected',
+      body: `Seu vídeo foi reprovado. Motivo: ${dto.reason}`,
+      vars: { reason: dto.reason },
+    });
+    return { id, status: 'rejected' };
   }
 }
 

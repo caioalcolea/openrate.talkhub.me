@@ -8,7 +8,11 @@ import {
 import { PgService } from '../common/pg.service';
 import { CurrentTenant } from '../common/tenant';
 import { Roles } from '../auth/roles.decorator';
+import { notifyUser } from '../common/notify';
+import { QueuesService } from '../queues.service';
 import { ingestConfirmedSale, reverseSale, type AffiliateLinkRef } from '../common/commission-ingest';
+
+type CreatorCredit = { userId: string; amount: number };
 
 interface RowResult {
   line: number;
@@ -42,10 +46,10 @@ async function ingestRow(
   orgId: string,
   row: AffiliateSaleRow,
   line: number,
-): Promise<RowResult> {
+): Promise<{ res: RowResult; credit: CreatorCredit | null }> {
   const resolved = await resolveLink(c, row.affiliateShortCode);
   if (!resolved) {
-    return { line, externalId: row.externalId, status: 'error', message: 'short_code não encontrado' };
+    return { res: { line, externalId: row.externalId, status: 'error', message: 'short_code não encontrado' }, credit: null };
   }
   const res = await ingestConfirmedSale(c, {
     orgId,
@@ -58,9 +62,11 @@ async function ingestRow(
     categoryId: resolved.categoryId,
     rawPayload: row,
   });
-  if (res.duplicated) return { line, externalId: row.externalId, status: 'duplicated' };
-  if (res.entries === 0) return { line, externalId: row.externalId, status: 'no_rule', message: 'nenhuma regra de comissão aplicável' };
-  return { line, externalId: row.externalId, status: 'imported' };
+  if (res.duplicated) return { res: { line, externalId: row.externalId, status: 'duplicated' }, credit: null };
+  if (res.entries === 0) {
+    return { res: { line, externalId: row.externalId, status: 'no_rule', message: 'nenhuma regra de comissão aplicável' }, credit: null };
+  }
+  return { res: { line, externalId: row.externalId, status: 'imported' }, credit: res.creatorCredit };
 }
 
 // Parser CSV simples (template próprio documentado, sem campos com vírgula).
@@ -88,7 +94,21 @@ function rowFromCsv(header: string[], cols: string[]): unknown {
 
 @Controller()
 class SalesController {
-  constructor(private readonly pg: PgService) {}
+  constructor(
+    private readonly pg: PgService,
+    private readonly queues: QueuesService,
+  ) {}
+
+  // Notifica o creator sobre a comissão creditada (best-effort, fora da transação).
+  private async notifyCredit(t: TenantContext, credit: CreatorCredit | null): Promise<void> {
+    if (!credit) return;
+    await notifyUser(this.pg, this.queues, t, {
+      userId: credit.userId,
+      template: 'commission_credited',
+      body: `Você recebeu uma comissão de R$ ${credit.amount.toFixed(2)}.`,
+      vars: { amount: credit.amount.toFixed(2) },
+    });
+  }
 
   // Venda avulsa (formulário manual). Roda o motor de comissão.
   @Post('affiliate-sales')
@@ -102,7 +122,9 @@ class SalesController {
       return { line: 1, status: 'error', message: parsed.error.issues.map((i) => i.message).join('; ') };
     }
     if (!t.orgId) throw new Error('org ausente');
-    return this.pg.withTenant(t, (c) => ingestRow(c, t.orgId as string, parsed.data, 1));
+    const { res, credit } = await this.pg.withTenant(t, (c) => ingestRow(c, t.orgId as string, parsed.data, 1));
+    await this.notifyCredit(t, credit);
+    return res;
   }
 
   // Importação em lote (CSV: platform,externalId,affiliateShortCode,amount,commissionableAmount,soldAt).
@@ -132,7 +154,9 @@ class SalesController {
         continue;
       }
       try {
-        results.push(await this.pg.withTenant(t, (c) => ingestRow(c, t.orgId as string, parsed.data, line)));
+        const { res, credit } = await this.pg.withTenant(t, (c) => ingestRow(c, t.orgId as string, parsed.data, line));
+        results.push(res);
+        await this.notifyCredit(t, credit);
       } catch (e) {
         results.push({ line, externalId: parsed.data.externalId, status: 'error', message: String(e).slice(0, 200) });
       }

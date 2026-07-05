@@ -61,6 +61,7 @@ export interface IngestResult {
   duplicated: boolean;
   ruleId: string | null;
   entries: number;
+  creatorCredit: { userId: string; amount: number } | null;
 }
 
 // Registra uma venda CONFIRMADA (idempotente por platform+external_id) e gera os
@@ -96,7 +97,7 @@ export async function ingestConfirmedSale(
     ],
   );
   if ((sale.rowCount ?? 0) === 0) {
-    return { saleId: null, duplicated: true, ruleId: null, entries: 0 };
+    return { saleId: null, duplicated: true, ruleId: null, entries: 0, creatorCredit: null };
   }
   const saleId: string = sale.rows[0].id;
 
@@ -109,7 +110,7 @@ export async function ingestConfirmedSale(
   };
   const rule = resolveRule(await loadApplicableRules(client, p.orgId), ctx);
   if (!rule) {
-    return { saleId, duplicated: false, ruleId: null, entries: 0 };
+    return { saleId, duplicated: false, ruleId: null, entries: 0, creatorCredit: null };
   }
 
   // Base do RATEIO conforme a regra vencedora (valor bruto x comissão de afiliado).
@@ -126,6 +127,7 @@ export async function ingestConfirmedSale(
   ];
 
   let entries = 0;
+  let creatorCredit: { userId: string; amount: number } | null = null;
   for (const row of rows) {
     if (row.amount <= 0) continue;
     const userId = row.type === 'creator' ? (p.link?.userId ?? null) : null;
@@ -141,8 +143,11 @@ export async function ingestConfirmedSale(
       [p.orgId, saleId, rule.id, row.type, userId, storeId, row.pct, splitBase, row.amount, String(grace)],
     );
     entries += r.rowCount ?? 0;
+    if (row.type === 'creator' && userId && (r.rowCount ?? 0) > 0) {
+      creatorCredit = { userId, amount: row.amount };
+    }
   }
-  return { saleId, duplicated: false, ruleId: rule.id, entries };
+  return { saleId, duplicated: false, ruleId: rule.id, entries, creatorCredit };
 }
 
 // Estorno: para cada lançamento AINDA NÃO PAGO/liquidado, insere um espelho
