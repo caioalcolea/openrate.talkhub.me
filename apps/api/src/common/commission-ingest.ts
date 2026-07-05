@@ -2,6 +2,7 @@ import type { PoolClient } from 'pg';
 import {
   resolveRule,
   splitCommission,
+  commissionBaseAmount,
   DEFAULT_PAYOUT_GRACE_DAYS,
   type CommissionRule,
   type SaleContext,
@@ -15,7 +16,7 @@ export async function loadApplicableRules(
 ): Promise<CommissionRule[]> {
   const res = await client.query(
     `SELECT id, organization_id, store_id, product_id, category_id, platform,
-            creator_pct, store_pct, platform_pct
+            creator_pct, store_pct, platform_pct, calc_base
        FROM openrate.commission_rules
       WHERE active = true
         AND (valid_until IS NULL OR valid_until > now())`,
@@ -31,6 +32,7 @@ export async function loadApplicableRules(
     creatorPct: Number(r.creator_pct),
     storePct: Number(r.store_pct),
     platformPct: Number(r.platform_pct),
+    calcBase: r.calc_base,
   }));
 }
 
@@ -69,7 +71,8 @@ export async function ingestConfirmedSale(
   p: IngestSaleParams,
 ): Promise<IngestResult> {
   const grace = p.graceDays ?? DEFAULT_PAYOUT_GRACE_DAYS;
-  const base = p.commissionableAmount ?? p.grossAmount;
+  // Base comissionável da VENDA (comissão de afiliado paga pela plataforma).
+  const commissionable = p.commissionableAmount ?? p.grossAmount;
 
   const sale = await client.query(
     `INSERT INTO openrate.affiliate_sales
@@ -87,7 +90,7 @@ export async function ingestConfirmedSale(
       p.platform,
       p.externalId,
       p.grossAmount,
-      base,
+      commissionable,
       p.occurredAt,
       JSON.stringify(p.rawPayload ?? {}),
     ],
@@ -109,7 +112,12 @@ export async function ingestConfirmedSale(
     return { saleId, duplicated: false, ruleId: null, entries: 0 };
   }
 
-  const split = splitCommission(base, rule);
+  // Base do RATEIO conforme a regra vencedora (valor bruto x comissão de afiliado).
+  const splitBase = commissionBaseAmount(rule, {
+    gross: p.grossAmount,
+    commissionable: p.commissionableAmount ?? null,
+  });
+  const split = splitCommission(splitBase, rule);
 
   const rows: Array<{ type: 'creator' | 'store' | 'platform'; pct: number; amount: number }> = [
     { type: 'creator', pct: rule.creatorPct, amount: split.creator },
@@ -130,7 +138,7 @@ export async function ingestConfirmedSale(
           user_id, store_id, percentage, base_amount, amount, status, payable_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending', now() + ($10 || ' days')::interval)
        ON CONFLICT (affiliate_sale_id, beneficiary_type) WHERE reversal_of IS NULL DO NOTHING`,
-      [p.orgId, saleId, rule.id, row.type, userId, storeId, row.pct, base, row.amount, String(grace)],
+      [p.orgId, saleId, rule.id, row.type, userId, storeId, row.pct, splitBase, row.amount, String(grace)],
     );
     entries += r.rowCount ?? 0;
   }

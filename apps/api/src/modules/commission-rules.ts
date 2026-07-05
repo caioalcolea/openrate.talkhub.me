@@ -25,7 +25,7 @@ class CommissionRulesController {
     return this.pg.withTenant(t, (c) =>
       c
         .query(
-          `SELECT id, store_id, product_id, category_id, platform,
+          `SELECT id, name, store_id, product_id, category_id, platform, calc_base,
                   creator_pct, store_pct, platform_pct, priority, active
              FROM openrate.commission_rules
             ORDER BY priority DESC`,
@@ -45,15 +45,17 @@ class CommissionRulesController {
       c
         .query(
           `INSERT INTO openrate.commission_rules
-             (organization_id, store_id, product_id, category_id, platform,
+             (organization_id, name, store_id, product_id, category_id, platform, calc_base,
               creator_pct, store_pct, platform_pct, created_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
           [
             t.orgId,
+            dto.name ?? 'Regra de comissão',
             dto.storeId ?? null,
             dto.productId ?? null,
             dto.categoryId ?? null,
             dto.platform ?? null,
+            dto.calcBase ?? 'affiliate_payout',
             dto.creatorPct,
             dto.storePct,
             dto.platformPct,

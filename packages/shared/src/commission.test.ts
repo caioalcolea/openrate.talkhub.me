@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveRule, splitCommission, rulePriority, type CommissionRule } from './commission';
+import {
+  resolveRule,
+  splitCommission,
+  rulePriority,
+  commissionBaseAmount,
+  type CommissionRule,
+} from './commission';
 
 const base = (over: Partial<CommissionRule>): CommissionRule => ({
   id: 'r',
@@ -13,6 +19,13 @@ const base = (over: Partial<CommissionRule>): CommissionRule => ({
   storePct: 10,
   platformPct: 5,
   ...over,
+});
+
+test('commissionBaseAmount: gross_sale usa o bruto; padrão usa o comissionável', () => {
+  assert.equal(commissionBaseAmount({ calcBase: 'gross_sale' }, { gross: 200, commissionable: 20 }), 200);
+  assert.equal(commissionBaseAmount({ calcBase: 'affiliate_payout' }, { gross: 200, commissionable: 20 }), 20);
+  assert.equal(commissionBaseAmount({}, { gross: 200, commissionable: 20 }), 20); // default
+  assert.equal(commissionBaseAmount({ calcBase: 'affiliate_payout' }, { gross: 200, commissionable: null }), 200); // fallback
 });
 
 test('mais específica vence: produto > loja > org', () => {
