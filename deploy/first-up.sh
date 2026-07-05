@@ -10,7 +10,7 @@
 #   2. DNS dos 3 hosts (aviso)
 #   3. Volume openrate_redis_data
 #   4. Postgres compartilhado (container supabase_db): roles openrate_owner/openrate_app
-#      + schema + migrations 0001..0007 (como owner)
+#      + schema + migration única consolidada 0001_init.sql (como owner)
 #   5. MinIO: bucket openrate-media + lifecycle (raw/ 30d) + usuário + policy
 #   6. Build das 4 imagens talkhub/openrate-*
 #   7. docker stack deploy openrate
@@ -149,22 +149,17 @@ SQL
 _ownerr="$(psql_owner -tAc "SELECT 1" 2>&1 1>/dev/null)" \
   || die "não consegui conectar como openrate_owner via TCP+senha. Erro: ${_ownerr:-desconhecido}. Confira OPENRATE_DB_OWNER_PASSWORD e o pg_hba do supabase_db."
 
-# 0001/0002/0003 aplicadas COMO openrate_owner (conexão direta; sem SET ROLE).
-# 0002 usa policy só-para-o-owner na affiliate_links (a função SECURITY DEFINER roda
-# como o owner); 0003 suspende o FORCE só durante o seed org-null e o restaura.
+# Migration ÚNICA consolidada (0001_init) aplicada COMO openrate_owner (conexão
+# direta; sem SET ROLE). Ela já inclui: resolver de link de afiliado (policy
+# só-do-owner + função SECURITY DEFINER), auth própria, seed de video_types
+# (suspende o FORCE só durante o seed org-null e restaura) e toda a estrutura.
+# Idempotente: se o schema já foi migrado, pula (nada destrutivo).
 if [ -z "$(psql_owner -tAc "SELECT to_regclass('openrate.organizations')")" ]; then
-  log "  aplicando 0001_init.sql (como openrate_owner)"
+  log "  aplicando 0001_init.sql (consolidada, como openrate_owner)"
   sed '/^-- migrate:down/,$d' db/migrations/0001_init.sql | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
 else
-  log "  schema openrate já migrado (0001) — pulando"
+  log "  schema openrate já migrado — pulando"
 fi
-log "  aplicando 0002 (resolver), 0003 (seed), 0004 (auth própria), 0005 (limpeza), 0006 (estrutura) e 0007 (metas) como openrate_owner"
-sed '/^-- migrate:down/,$d' db/migrations/0002_affiliate_link_resolver.sql | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
-sed '/^-- migrate:down/,$d' db/migrations/0003_seed_video_types.sql        | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
-sed '/^-- migrate:down/,$d' db/migrations/0004_own_auth.sql                | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
-sed '/^-- migrate:down/,$d' db/migrations/0005_drop_auth_jwt_fallback.sql  | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
-sed '/^-- migrate:down/,$d' db/migrations/0006_full_structure.sql          | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
-sed '/^-- migrate:down/,$d' db/migrations/0007_goals_refactor.sql          | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
 
 # contagens COMO owner. video_types roda sob FORCE RLS até p/ o dono; usamos um claim
 # super_admin TRANSACTION-LOCAL (is_local=true — mesmo padrão seguro do app, que não
