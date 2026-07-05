@@ -5,6 +5,7 @@ import {
   CompleteMultipartUploadCommand,
   UploadPartCommand,
   GetObjectCommand,
+  PutObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from './env';
@@ -66,6 +67,16 @@ export class S3Service {
             .map((p) => ({ PartNumber: p.partNumber, ETag: p.etag })),
         },
       }),
+    );
+  }
+
+  // Presigned PUT (upload único) — para imagens leves (logo de marca, imagem de
+  // produto). O browser faz PUT direto no host público; a mídia não passa pela API.
+  async presignPut(key: string, contentType: string, expiresIn = 3600): Promise<string> {
+    return getSignedUrl(
+      this.publicClient,
+      new PutObjectCommand({ Bucket: env.s3Bucket, Key: key, ContentType: contentType }),
+      { expiresIn },
     );
   }
 

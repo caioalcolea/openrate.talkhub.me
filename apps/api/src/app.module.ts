@@ -9,6 +9,7 @@ import { StoresModule } from './modules/stores';
 import { UsersModule } from './modules/users';
 import { ProductsModule } from './modules/products';
 import { CatalogModule } from './modules/catalog';
+import { MediaModule } from './modules/media';
 import { IdeasModule } from './modules/ideas';
 import { VideosModule } from './modules/videos';
 import { GoalsModule } from './modules/goals';
@@ -31,6 +32,7 @@ import { WebhooksModule } from './modules/webhooks';
     UsersModule,
     ProductsModule,
     CatalogModule,
+    MediaModule,
     IdeasModule,
     VideosModule,
     GoalsModule,

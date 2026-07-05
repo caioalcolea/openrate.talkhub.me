@@ -19,6 +19,7 @@ const NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: <I d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" /> },
   { href: '/stores', label: 'Lojas', icon: <I d="M3 9l1.5-5h15L21 9M4 9h16v11H4zM9 20v-6h6v6" /> },
   { href: '/products', label: 'Produtos', icon: <I d="M20 7L12 3 4 7m16 0l-8 4-8-4m16 0v10l-8 4-8-4V7" /> },
+  { href: '/catalog', label: 'Catálogo', icon: <I d="M4 6h16M4 12h16M4 18h10M18 16l3 3-3 3" /> },
   { href: '/videos', label: 'Vídeos', icon: <I d="M15 10l4.5-2.5v9L15 14M4 6h9a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z" /> },
   { href: '/goals', label: 'Metas', icon: <I d="M12 12l7-7m-7 7a3 3 0 100 .01M12 3a9 9 0 109 9" /> },
   { href: '/users', label: 'Usuários', icon: <I d="M17 20v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 8a4 4 0 100-8 4 4 0 000 8m14 12v-2a4 4 0 00-3-3.87M16 0.13a4 4 0 010 7.75" /> },

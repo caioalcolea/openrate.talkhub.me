@@ -207,6 +207,8 @@ export const createBrandSchema = z.object({
   logoKey: z.string().max(300).optional(), // objeto no MinIO (upload via presign)
 });
 export type CreateBrandInput = z.infer<typeof createBrandSchema>;
+export const updateBrandSchema = createBrandSchema.partial().extend({ active: z.boolean().optional() });
+export type UpdateBrandInput = z.infer<typeof updateBrandSchema>;
 
 export const createCategorySchema = z.object({
   name: z.string().min(1).max(160),
@@ -214,6 +216,15 @@ export const createCategorySchema = z.object({
   parentId: uuid.nullable().optional(),
 });
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
+export const updateCategorySchema = createCategorySchema.partial().extend({ active: z.boolean().optional() });
+export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
+
+// Presign de upload de imagem (logo de marca, imagem de produto).
+export const mediaUploadUrlSchema = z.object({
+  kind: z.enum(['brand-logo', 'product-image']),
+  contentType: z.string().regex(/^image\//, 'apenas imagens'),
+});
+export type MediaUploadUrlInput = z.infer<typeof mediaUploadUrlSchema>;
 
 // Passo do esqueleto de roteiro de um tipo de vídeo (editor de passos).
 const scriptStepSchema = z.object({
@@ -232,6 +243,8 @@ export const createVideoTypeSchema = z.object({
   scriptSkeleton: z.array(scriptStepSchema).max(30).optional(),
 });
 export type CreateVideoTypeInput = z.infer<typeof createVideoTypeSchema>;
+export const updateVideoTypeSchema = createVideoTypeSchema.partial().extend({ active: z.boolean().optional() });
+export type UpdateVideoTypeInput = z.infer<typeof updateVideoTypeSchema>;
 
 export const generateIdeasSchema = z.object({
   videoTypeId: uuid,
