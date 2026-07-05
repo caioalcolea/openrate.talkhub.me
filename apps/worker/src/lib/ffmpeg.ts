@@ -16,22 +16,33 @@ function run(bin: string, args: string[]): Promise<string> {
 export interface ProbeResult {
   durationSeconds: number;
   hasAudio: boolean;
+  width: number | null;
+  height: number | null;
+  videoCodec: string | null;
+  audioCodec: string | null;
 }
 
 export async function ffprobe(input: string): Promise<ProbeResult> {
   const out = await run('ffprobe', [
     '-v', 'error',
-    '-show_entries', 'format=duration:stream=codec_type',
+    '-show_entries', 'format=duration:stream=codec_type,codec_name,width,height',
     '-of', 'json',
     input,
   ]);
   const json = JSON.parse(out) as {
     format?: { duration?: string };
-    streams?: Array<{ codec_type?: string }>;
+    streams?: Array<{ codec_type?: string; codec_name?: string; width?: number; height?: number }>;
   };
+  const streams = json.streams ?? [];
+  const v = streams.find((s) => s.codec_type === 'video');
+  const a = streams.find((s) => s.codec_type === 'audio');
   return {
     durationSeconds: Number(json.format?.duration ?? 0),
-    hasAudio: (json.streams ?? []).some((s) => s.codec_type === 'audio'),
+    hasAudio: !!a,
+    width: v?.width ?? null,
+    height: v?.height ?? null,
+    videoCodec: v?.codec_name ?? null,
+    audioCodec: a?.codec_name ?? null,
   };
 }
 
