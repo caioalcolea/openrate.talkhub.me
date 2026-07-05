@@ -14,6 +14,7 @@ interface User {
   phone: string | null;
   active: boolean;
   stores: string[];
+  image_release_status?: string;
 }
 interface Store {
   id: string;
@@ -241,9 +242,30 @@ export default function UsersPage() {
                   </td>
                   <td className="text-xs text-neutral-500">{u.stores.length ? u.stores.join(', ') : '—'}</td>
                   <td>
-                    <span className={`badge ${u.active ? 'badge-green' : 'badge-neutral'}`}>
-                      {u.active ? 'Ativo' : 'Inativo'}
-                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      <span className={`badge ${u.active ? 'badge-green' : 'badge-neutral'}`}>
+                        {u.active ? 'Ativo' : 'Inativo'}
+                      </span>
+                      {u.role === 'attendant' && (
+                        <span
+                          className={
+                            'badge ' +
+                            (u.image_release_status === 'signed'
+                              ? 'badge-green'
+                              : u.image_release_status === 'revoked'
+                                ? 'badge-red'
+                                : 'badge-amber')
+                          }
+                          title="Cessão de direito de imagem"
+                        >
+                          {u.image_release_status === 'signed'
+                            ? 'Cessão ✓'
+                            : u.image_release_status === 'revoked'
+                              ? 'Cessão revogada'
+                              : 'Cessão pendente'}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="text-right">
                     {canManage(u) ? (

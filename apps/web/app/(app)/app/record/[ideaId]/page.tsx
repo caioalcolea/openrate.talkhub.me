@@ -1,7 +1,9 @@
 'use client';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { api } from '../../../../../lib/api';
+import { useAuth } from '../../../../../lib/auth';
 import { createRecorder, type Recorder } from '../../../../../lib/recording';
 import { putPending } from '../../../../../lib/idb';
 
@@ -28,6 +30,7 @@ function RecordScreen() {
   const { ideaId } = useParams<{ ideaId: string }>();
   const productId = useSearchParams().get('product') ?? '';
   const router = useRouter();
+  const { me } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const recRef = useRef<Recorder | null>(null);
   const activeRef = useRef<HTMLLIElement>(null);
@@ -111,6 +114,20 @@ function RecordScreen() {
 
   const overTarget = target > 0 && elapsed > target;
   const current = steps[activeIdx];
+
+  // Gate de cessão de imagem: sem assinar, não libera a gravação (a API também bloqueia).
+  if (me && me.user.image_release_status !== 'signed') {
+    return (
+      <div className="card space-y-3 text-center">
+        <span className="text-3xl">📝</span>
+        <h1 className="text-lg font-bold">Assine a cessão de imagem</h1>
+        <p className="text-sm text-neutral-600">
+          Antes de gravar, você precisa autorizar o uso da sua imagem nos vídeos.
+        </p>
+        <Link href="/app/image-release" className="btn">Assinar agora</Link>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">

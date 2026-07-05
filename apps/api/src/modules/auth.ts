@@ -269,6 +269,44 @@ class MeController {
     });
   }
 
+  // Status da cessão de direito de imagem do próprio usuário.
+  @Get('me/image-release')
+  imageRelease(@CurrentTenant() t: TenantContext) {
+    return this.pg.withTenant(t, (c) =>
+      c
+        .query(
+          'SELECT image_release_status AS status, image_release_signed_at AS signed_at FROM openrate.users WHERE id = $1',
+          [t.userId],
+        )
+        .then((r) => r.rows[0] ?? { status: 'pending', signed_at: null }),
+    );
+  }
+
+  // Aceite in-app da cessão de imagem (consentimento MVP; a assinatura formal via
+  // Docuseal, quando plugada, chega pelo webhook). Só sai de pending/sent — uma
+  // cessão revogada exige tratamento do gestor, não pode ser reassinada aqui.
+  @Post('me/image-release/accept')
+  async acceptImageRelease(@CurrentTenant() t: TenantContext): Promise<{ status: string }> {
+    return this.pg.withTenant(t, async (c) => {
+      const r = await c.query<{ image_release_status: string }>(
+        'SELECT image_release_status FROM openrate.users WHERE id = $1',
+        [t.userId],
+      );
+      const current = r.rows[0]?.image_release_status;
+      if (current === 'signed') return { status: 'signed' };
+      if (current === 'revoked') {
+        throw new ForbiddenException('Cessão revogada — procure o gestor da rede.');
+      }
+      await c.query(
+        `UPDATE openrate.users
+            SET image_release_status = 'signed', image_release_signed_at = now()
+          WHERE id = $1`,
+        [t.userId],
+      );
+      return { status: 'signed' };
+    });
+  }
+
   // O próprio usuário cadastra/edita sua chave Pix (dado sensível do recebedor).
   @Patch('me/pix')
   updatePix(

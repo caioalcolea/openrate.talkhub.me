@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   Module,
@@ -47,14 +48,22 @@ class VideosController {
     const ext = dto.contentType.includes('webm') ? 'webm' : 'mp4';
     const key = rawVideoKey(t.orgId, t.storeId, videoId, ext);
 
-    await this.pg.withTenant(t, (c) =>
-      c.query(
+    await this.pg.withTenant(t, async (c) => {
+      // Gate de cessão de imagem: sem a cessão assinada, o atendente não grava.
+      const rel = await c.query<{ image_release_status: string }>(
+        'SELECT image_release_status FROM openrate.users WHERE id = $1',
+        [t.userId],
+      );
+      if (rel.rows[0]?.image_release_status !== 'signed') {
+        throw new ForbiddenException('Assine a cessão de direito de imagem antes de gravar.');
+      }
+      await c.query(
         `INSERT INTO openrate.videos
            (id, organization_id, store_id, user_id, product_id, video_idea_id, status, raw_key, size_bytes)
          VALUES ($1,$2,$3,$4,$5,$6,'recording',$7,$8)`,
         [videoId, t.orgId, t.storeId, t.userId, dto.productId, dto.videoIdeaId, key, dto.fileSize],
-      ),
-    );
+      );
+    });
 
     const uploadId = await this.s3.createMultipart(key, dto.contentType);
     const parts = await this.s3.presignParts(key, uploadId, dto.partCount);
