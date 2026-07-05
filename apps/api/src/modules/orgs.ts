@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Module, Param, Patch, Post } from '@nestjs/common';
 import {
   createOrganizationSchema,
+  updateOrganizationSchema,
   type CreateOrganizationInput,
+  type UpdateOrganizationInput,
   type TenantContext,
 } from '@openrate/shared';
 import { PgService } from '../common/pg.service';
@@ -17,7 +19,11 @@ class OrgsController {
   @Get()
   list(@CurrentTenant() t: TenantContext) {
     return this.pg.withTenant(t, (c) =>
-      c.query('SELECT id, name, slug, document, active, created_at FROM openrate.organizations ORDER BY name').then((r) => r.rows),
+      c
+        .query(
+          'SELECT id, name, trade_name, slug, document, plan, status, active, created_at FROM openrate.organizations ORDER BY name',
+        )
+        .then((r) => r.rows),
     );
   }
 
@@ -36,20 +42,40 @@ class OrgsController {
     return this.pg.withTenant(t, (c) =>
       c
         .query(
-          'INSERT INTO openrate.organizations (name, slug, document) VALUES ($1,$2,$3) RETURNING *',
-          [dto.name, dto.slug, dto.document ?? null],
+          `INSERT INTO openrate.organizations (name, slug, document, trade_name, plan)
+           VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+          [dto.name, dto.slug, dto.document ?? null, dto.tradeName ?? null, dto.plan ?? 'free'],
         )
         .then((r) => r.rows[0]),
     );
   }
 
   @Patch(':id')
-  update(@CurrentTenant() t: TenantContext, @Param('id') id: string, @Body() body: { name?: string; active?: boolean }) {
+  update(
+    @CurrentTenant() t: TenantContext,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateOrganizationSchema)) dto: UpdateOrganizationInput,
+  ) {
     return this.pg.withTenant(t, (c) =>
       c
         .query(
-          'UPDATE openrate.organizations SET name = COALESCE($2,name), active = COALESCE($3,active) WHERE id = $1 RETURNING *',
-          [id, body.name ?? null, body.active ?? null],
+          `UPDATE openrate.organizations SET
+             name       = COALESCE($2, name),
+             trade_name = COALESCE($3, trade_name),
+             document   = COALESCE($4, document),
+             plan       = COALESCE($5, plan),
+             status     = COALESCE($6, status),
+             active     = COALESCE($7, active)
+           WHERE id = $1 RETURNING *`,
+          [
+            id,
+            dto.name ?? null,
+            dto.tradeName ?? null,
+            dto.document ?? null,
+            dto.plan ?? null,
+            dto.status ?? null,
+            dto.active ?? null,
+          ],
         )
         .then((r) => r.rows[0] ?? null),
     );
