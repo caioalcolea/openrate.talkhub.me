@@ -21,6 +21,7 @@ import { SettlementsModule } from './modules/settlements';
 import { PayoutsModule } from './modules/payouts';
 import { DashboardModule } from './modules/dashboard';
 import { CustomersModule } from './modules/customers';
+import { StoreSalesModule } from './modules/store-sales';
 import { WebhooksModule } from './modules/webhooks';
 
 @Module({
@@ -45,6 +46,7 @@ import { WebhooksModule } from './modules/webhooks';
     PayoutsModule,
     DashboardModule,
     CustomersModule,
+    StoreSalesModule,
     WebhooksModule,
   ],
   // JwtAuthGuard global: valida JWT + resolve tenant + checa @Roles.

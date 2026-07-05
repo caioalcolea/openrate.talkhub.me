@@ -25,6 +25,7 @@ const NAV: NavItem[] = [
   { href: '/users', label: 'Usuários', icon: <I d="M17 20v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 8a4 4 0 100-8 4 4 0 000 8m14 12v-2a4 4 0 00-3-3.87M16 0.13a4 4 0 010 7.75" /> },
   { href: '/customers', label: 'Clientes', icon: <I d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8M22 21v-2a4 4 0 00-3-3.87" /> },
   { href: '/sales', label: 'Vendas', icon: <I d="M3 3v18h18M7 15l3-3 3 3 5-6" /> },
+  { href: '/store-sales', label: 'Vendas físicas', icon: <I d="M6 2l1 4h10l1-4M4 6h16l-1.5 9.5a2 2 0 01-2 1.5H7.5a2 2 0 01-2-1.5L4 6zM9 21h.01M17 21h.01" /> },
   { href: '/commissions', label: 'Comissões', icon: <I d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" /> },
   { href: '/payouts', label: 'Pagamentos', icon: <I d="M2 7h20v10H2zM2 11h20M6 15h4" /> },
   { href: '/orgs', label: 'Organizações', icon: <I d="M3 21h18M6 21V7l6-4 6 4v14M10 12h.01M14 12h.01M10 16h.01M14 16h.01" />, superOnly: true },
