@@ -17,6 +17,7 @@ function I({ d }: { d: string }) {
 
 const NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: <I d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" /> },
+  { href: '/stores', label: 'Lojas', icon: <I d="M3 9l1.5-5h15L21 9M4 9h16v11H4zM9 20v-6h6v6" /> },
   { href: '/products', label: 'Produtos', icon: <I d="M20 7L12 3 4 7m16 0l-8 4-8-4m16 0v10l-8 4-8-4V7" /> },
   { href: '/videos', label: 'Vídeos', icon: <I d="M15 10l4.5-2.5v9L15 14M4 6h9a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z" /> },
   { href: '/goals', label: 'Metas', icon: <I d="M12 12l7-7m-7 7a3 3 0 100 .01M12 3a9 9 0 109 9" /> },
