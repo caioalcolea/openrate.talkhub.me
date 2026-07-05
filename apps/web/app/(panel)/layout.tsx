@@ -5,8 +5,9 @@ import { useEffect } from 'react';
 import { AuthProvider, useAuth } from '../../lib/auth';
 import { ToastProvider } from '../../components/toast';
 import { NotificationsBell } from '../../components/notifications-bell';
+import { roleAtLeast, type UserRole } from '@openrate/shared';
 
-type NavItem = { href: string; label: string; icon: JSX.Element; superOnly?: boolean };
+type NavItem = { href: string; label: string; icon: JSX.Element; superOnly?: boolean; minRole?: UserRole };
 
 function I({ d }: { d: string }) {
   return (
@@ -30,6 +31,7 @@ const NAV: NavItem[] = [
   { href: '/store-sales', label: 'Vendas físicas', icon: <I d="M6 2l1 4h10l1-4M4 6h16l-1.5 9.5a2 2 0 01-2 1.5H7.5a2 2 0 01-2-1.5L4 6zM9 21h.01M17 21h.01" /> },
   { href: '/commissions', label: 'Comissões', icon: <I d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" /> },
   { href: '/payouts', label: 'Pagamentos', icon: <I d="M2 7h20v10H2zM2 11h20M6 15h4" /> },
+  { href: '/audit', label: 'Auditoria', icon: <I d="M9 12l2 2 4-4M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7l7-4z" />, minRole: 'owner' },
   { href: '/orgs', label: 'Organizações', icon: <I d="M3 21h18M6 21V7l6-4 6 4v14M10 12h.01M14 12h.01M10 16h.01M14 16h.01" />, superOnly: true },
 ];
 
@@ -52,7 +54,11 @@ function Shell({ children }: { children: React.ReactNode }) {
   if (!me) return null;
 
   const isSuper = me.role === 'super_admin';
-  const items = NAV.filter((n) => !n.superOnly || isSuper);
+  const items = NAV.filter((n) => {
+    if (n.superOnly && !isSuper) return false;
+    if (n.minRole && !roleAtLeast(me.role as UserRole, n.minRole)) return false;
+    return true;
+  });
   const active = (href: string) => pathname === href || pathname.startsWith(href + '/');
 
   return (

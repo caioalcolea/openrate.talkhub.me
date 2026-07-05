@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { CoreModule } from './core.module';
 import { JwtAuthGuard } from './auth/jwt.guard';
+import { AuditInterceptor } from './common/audit.interceptor';
 import { HealthModule } from './modules/health';
 import { AuthModule } from './modules/auth';
 import { OrgsModule } from './modules/orgs';
@@ -22,6 +23,7 @@ import { PayoutsModule } from './modules/payouts';
 import { DashboardModule } from './modules/dashboard';
 import { CustomersModule } from './modules/customers';
 import { StoreSalesModule } from './modules/store-sales';
+import { AuditModule } from './modules/audit';
 import { WebhooksModule } from './modules/webhooks';
 
 @Module({
@@ -47,10 +49,15 @@ import { WebhooksModule } from './modules/webhooks';
     DashboardModule,
     CustomersModule,
     StoreSalesModule,
+    AuditModule,
     WebhooksModule,
   ],
-  // JwtAuthGuard global: valida JWT + resolve tenant + checa @Roles.
-  // Rotas @Public() (health, auth/login, webhooks) são liberadas.
-  providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
+  providers: [
+    // JwtAuthGuard global: valida JWT + resolve tenant + checa @Roles.
+    // Rotas @Public() (health, auth/login, webhooks) são liberadas.
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // AuditInterceptor global: registra em audit_log toda mutação bem-sucedida.
+    { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
+  ],
 })
 export class AppModule {}
