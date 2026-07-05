@@ -1,5 +1,6 @@
 import {
   Body,
+  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -39,7 +40,8 @@ class PublicationsController {
     @Param('id') videoId: string,
     @Body(new ZodValidationPipe(createPublicationSchema)) dto: CreatePublicationInput,
   ) {
-    return this.pg.withTenant(t, async (c) => {
+    try {
+      return await this.pg.withTenant(t, async (c) => {
       const v = await c.query(
         'SELECT id, user_id, store_id, product_id, status FROM openrate.videos WHERE id = $1',
         [videoId],
@@ -87,7 +89,14 @@ class PublicationsController {
           redirectUrl: `${env.apiPublicUrl}/r/${code}`,
         },
       };
-    });
+      });
+    } catch (e) {
+      // Republicar o mesmo vídeo na mesma plataforma viola o índice único → 409.
+      if ((e as { code?: string })?.code === '23505') {
+        throw new ConflictException('este vídeo já foi publicado nesta plataforma');
+      }
+      throw e;
+    }
   }
 
   @Get('publications')

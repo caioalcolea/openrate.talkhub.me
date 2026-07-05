@@ -26,7 +26,7 @@ class DashboardController {
       const commission = await c.query(
         `SELECT beneficiary_type, COALESCE(SUM(amount),0) AS total
            FROM openrate.commission_entries
-          WHERE status <> 'cancelled' AND ($1::uuid IS NULL OR store_id = $1 OR beneficiary_type = 'creator')
+          WHERE status <> 'cancelled' AND ($1::uuid IS NULL OR store_id = $1)
           GROUP BY beneficiary_type`,
         [storeId],
       );
@@ -42,9 +42,10 @@ class DashboardController {
            FROM openrate.commission_entries e
            JOIN openrate.users u ON u.id = e.user_id
           WHERE e.beneficiary_type = 'creator' AND e.status <> 'cancelled'
+            AND ($1::uuid IS NULL OR e.store_id = $1)
           GROUP BY e.user_id, u.full_name
           ORDER BY total DESC LIMIT 5`,
-        [],
+        [storeId],
       );
       return {
         sales: { count: sales.rows[0].count, gross: sales.rows[0].gross },

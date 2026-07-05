@@ -27,6 +27,7 @@ import { ZodValidationPipe } from '../common/zod.pipe';
 import { notifyUser } from '../common/notify';
 import { QueuesService } from '../queues.service';
 import { Roles } from '../auth/roles.decorator';
+import { roleAtLeast } from '@openrate/shared';
 
 @Controller('videos')
 class VideosController {
@@ -106,11 +107,16 @@ class VideosController {
 
   @Get()
   list(@CurrentTenant() t: TenantContext) {
+    // Atendente vê SÓ os próprios vídeos; manager+ veem os da org (RLS já isola a org).
+    const ownOnly = !roleAtLeast(t.role, 'manager');
     return this.pg.withTenant(t, (c) =>
       c
         .query(
           `SELECT id, product_id, status, duration_seconds, thumb_key, created_at, approved_at
-             FROM openrate.videos ORDER BY created_at DESC LIMIT 200`,
+             FROM openrate.videos
+            WHERE (NOT $2::boolean OR user_id = $1)
+            ORDER BY created_at DESC LIMIT 200`,
+          [t.userId, ownOnly],
         )
         .then((r) => r.rows),
     );
@@ -122,6 +128,10 @@ class VideosController {
       c.query('SELECT * FROM openrate.videos WHERE id = $1', [id]).then((r) => r.rows[0] ?? null),
     );
     if (!video) return null;
+    // Atendente só acessa o próprio vídeo (evita presigned URL de vídeo alheio).
+    if (!roleAtLeast(t.role, 'manager') && video.user_id !== t.userId) {
+      throw new NotFoundException('vídeo não encontrado');
+    }
     const finalUrl = video.final_key ? await this.s3.presignGet(video.final_key) : null;
     const thumbUrl = video.thumb_key ? await this.s3.presignGet(video.thumb_key) : null;
     return { ...video, finalUrl, thumbUrl };
@@ -137,10 +147,14 @@ class VideosController {
   ): Promise<{ url: string }> {
     const v = await this.pg.withTenant(t, (c) =>
       c
-        .query('SELECT final_key, thumb_key, raw_key FROM openrate.videos WHERE id = $1', [id])
+        .query('SELECT final_key, thumb_key, raw_key, user_id FROM openrate.videos WHERE id = $1', [id])
         .then((r) => r.rows[0] ?? null),
     );
     if (!v) throw new NotFoundException('vídeo não encontrado');
+    // Atendente só baixa o próprio vídeo.
+    if (!roleAtLeast(t.role, 'manager') && v.user_id !== t.userId) {
+      throw new NotFoundException('vídeo não encontrado');
+    }
     const which = kind === 'thumb' ? 'thumb' : 'final';
     const key: string | null = which === 'thumb' ? v.thumb_key : (v.final_key ?? v.raw_key);
     if (!key) throw new NotFoundException('arquivo não disponível');

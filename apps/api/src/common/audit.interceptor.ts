@@ -15,8 +15,8 @@ import type { RequestWithTenant } from './tenant';
 const AUDIT_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 // Recursos de altíssima frequência e baixo valor de auditoria (ruído puro).
 const SKIP_RESOURCES = new Set(['notifications']);
-// Redação de campos sensíveis no snapshot do corpo.
-const REDACT = /(pass|senha|token|secret|hash)/i;
+// Redação de campos sensíveis no snapshot do corpo — credenciais e PII financeira.
+const REDACT = /(pass|senha|token|secret|hash|pix|cpf|cnpj|document|chave|account|conta|iban|card|cart[aã]o)/i;
 
 function redact(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redact);

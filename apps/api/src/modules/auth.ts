@@ -5,12 +5,16 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Headers,
   Module,
   NotFoundException,
   Patch,
   Post,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { timingSafeEqual } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { CurrentTenant, Public } from '../common/tenant';
 import { PgService } from '../common/pg.service';
@@ -104,6 +108,7 @@ class AuthController {
   constructor(private readonly pg: PgService) {}
 
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } }) // 10 tentativas/min por IP
   @Post('login')
   async login(@Body() body: LoginDto): Promise<unknown> {
     if (!body.email || !body.password) throw new UnauthorizedException('email/senha obrigatórios');
@@ -120,6 +125,7 @@ class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Post('refresh')
   async refresh(@Body() body: RefreshDto): Promise<unknown> {
     if (!body.refresh_token) throw new UnauthorizedException('refresh_token obrigatório');
@@ -137,17 +143,24 @@ class AuthController {
     if (!d || d.typ !== 'refresh' || !d.sub || !d.app_metadata?.role) {
       throw new UnauthorizedException('refresh inválido');
     }
+    // Revalida o usuário no BANCO a cada refresh: conta desativada ou papel
+    // rebaixado passam a valer no máximo em 1 ciclo de access (12h), sem esperar
+    // o refresh de 30 dias vencer. super_admin (org NULL no banco) PRESERVA o
+    // act-as-org escolhido no token; os demais re-derivam org/loja do banco.
+    const r = await this.pg.query<AuthUserRow>('SELECT * FROM openrate.auth_find_user_by_id($1)', [d.sub]);
+    const u = r.rows[0];
+    if (!u || !u.active) throw new UnauthorizedException('sessão inválida — faça login novamente');
+    const isSuper = u.role === 'super_admin';
+    const principal: Principal = {
+      id: u.id,
+      email: u.email || d.email || '',
+      organization_id: isSuper ? (d.app_metadata.org_id ?? null) : u.organization_id,
+      store_id: isSuper ? (d.app_metadata.store_id ?? null) : u.store_id,
+      role: u.role,
+    };
+    const emailClaim = principal.email ? { email: principal.email } : {};
     const access_token = jwt.sign(
-      {
-        sub: d.sub,
-        email: d.email,
-        app_metadata: {
-          product: OPENRATE_PRODUCT,
-          org_id: d.app_metadata.org_id ?? null,
-          store_id: d.app_metadata.store_id ?? null,
-          role: d.app_metadata.role,
-        },
-      },
+      { sub: principal.id, ...emailClaim, app_metadata: appMetadata(principal) },
       env.jwtSecret,
       { algorithm: 'HS256', expiresIn: ACCESS_TTL_SECONDS },
     );
@@ -156,9 +169,23 @@ class AuthController {
 
   // Primeiro acesso: cria o super_admin inicial (organization_id NULL). A função
   // bootstrap_super_admin AUTO-DESABILITA após o 1º — chamadas seguintes dão 409.
+  // GATE: exige BOOTSTRAP_TOKEN (header x-bootstrap-token) — sem ele qualquer
+  // anônimo poderia tomar o 1º super_admin numa janela de deploy. Fail-closed:
+  // sem BOOTSTRAP_TOKEN configurado, o endpoint fica desabilitado (503).
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('bootstrap')
-  async bootstrap(@Body() body: BootstrapDto): Promise<unknown> {
+  async bootstrap(
+    @Headers('x-bootstrap-token') token: string | undefined,
+    @Body() body: BootstrapDto,
+  ): Promise<unknown> {
+    const expected = env.bootstrapToken;
+    if (!expected) throw new ServiceUnavailableException('bootstrap desabilitado: defina BOOTSTRAP_TOKEN');
+    const got = Buffer.from(token ?? '');
+    const exp = Buffer.from(expected);
+    if (got.length !== exp.length || !timingSafeEqual(got, exp)) {
+      throw new ForbiddenException('token de bootstrap inválido');
+    }
     if (!body.email || !body.password || !body.fullName) {
       throw new UnauthorizedException('email, password e fullName obrigatórios');
     }

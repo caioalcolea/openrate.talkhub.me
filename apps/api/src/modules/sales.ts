@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Module, Param, Post } from '@nestjs/common';
+import { Body, ConflictException, Controller, Get, Header, Module, Param, Post } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import {
   affiliateSaleRowSchema,
@@ -65,7 +65,11 @@ async function ingestRow(
   });
   if (res.duplicated) return { res: { line, externalId: row.externalId, status: 'duplicated' }, credit: null };
   if (res.entries === 0) {
-    return { res: { line, externalId: row.externalId, status: 'no_rule', message: 'nenhuma regra de comissão aplicável' }, credit: null };
+    // Distingue "sem regra" de "regra aplicável, mas rateio zero" (mensagem honesta).
+    const message = res.ruleId
+      ? 'regra aplicável, mas o rateio resultou em zero'
+      : 'nenhuma regra de comissão aplicável';
+    return { res: { line, externalId: row.externalId, status: 'no_rule', message }, credit: null };
   }
   return { res: { line, externalId: row.externalId, status: 'imported' }, credit: res.creatorCredit };
 }
@@ -242,6 +246,17 @@ class SalesController {
   cancel(@CurrentTenant() t: TenantContext, @Param('id') id: string) {
     if (!t.orgId) throw new Error('org ausente');
     return this.pg.withTenant(t, async (c) => {
+      // Se já houver lançamento consolidado/pago (settled/paid), o estorno simples
+      // deixaria o payout pagar uma venda cancelada. Bloqueia → clawback manual.
+      const locked = await c.query(
+        `SELECT 1 FROM openrate.commission_entries
+          WHERE affiliate_sale_id = $1 AND reversal_of IS NULL AND amount > 0
+            AND status IN ('settled','paid') LIMIT 1`,
+        [id],
+      );
+      if ((locked.rowCount ?? 0) > 0) {
+        throw new ConflictException('comissões já liquidadas/pagas — estorno exige clawback manual');
+      }
       const reversed = await reverseSale(c, id, t.orgId as string);
       return { saleId: id, reversedEntries: reversed };
     });

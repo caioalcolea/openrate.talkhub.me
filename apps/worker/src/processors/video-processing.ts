@@ -50,7 +50,10 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
       watermarkText: storeName || 'OpenRate',
       output: finalPath,
     });
-    await thumbnail(finalPath, thumbPath, Math.min(1, Math.floor(probe.durationSeconds / 2)));
+    // Frame do MEIO do vídeo (mais representativo); vídeos < 2s usam o frame 0.
+    // (antes usava Math.min(1, ...), que travava a thumb sempre em ~1s.)
+    const thumbAt = probe.durationSeconds >= 2 ? Math.floor(probe.durationSeconds / 2) : 0;
+    await thumbnail(finalPath, thumbPath, thumbAt);
 
     const fKey = finalVideoKey(videoId);
     const tKey = thumbKey(videoId);

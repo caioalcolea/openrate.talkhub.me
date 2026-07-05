@@ -35,6 +35,19 @@ services:
     deploy:
       mode: replicated
       replicas: 1
+      ## Atualização segura: sobe 1 de cada vez e, se a nova task não ficar
+      ## saudável em 'monitor', REVERTE automaticamente (não deixa deploy quebrado
+      ## no ar). stop-first é seguro p/ o Redis com estado (nunca 2 no mesmo volume).
+      update_config:
+        parallelism: 1
+        order: stop-first
+        delay: 5s
+        monitor: 20s
+        failure_action: rollback
+        max_failure_ratio: 0
+      rollback_config:
+        parallelism: 1
+        order: stop-first
       placement:
         constraints:
           - node.role == manager
@@ -63,6 +76,9 @@ services:
       - REDIS_URL=redis://:${OPENRATE_REDIS_PASSWORD}@openrate_openrate_redis:6379
     ## 🔑 Auth própria — a API assina e valida o próprio JWT HS256 com este segredo
       - JWT_SECRET=${JWT_SECRET}
+    ## 🔑 Bootstrap do 1º super_admin — obrigatório (fail-closed); o endpoint
+    ##    /v1/auth/bootstrap só funciona com o header x-bootstrap-token igual a este valor
+      - BOOTSTRAP_TOKEN=${BOOTSTRAP_TOKEN}
     ## 🔑 Storage — REUSA o MinIO existente; upload direto do navegador (PWA) via presigned multipart (vídeo NÃO passa pela API)
       - S3_ENDPOINT=http://minio_minio:9000
       - S3_PUBLIC_ENDPOINT=https://bucketss3.talkhub.me
@@ -78,6 +94,12 @@ services:
       - API_PUBLIC_URL=https://openrate-api.talkhub.me
     ## 🔑 Origem(ns) permitida(s) no CORS (o PWA/painel). Lista separada por vírgula.
       - WEB_ORIGIN=https://openrate.talkhub.me
+    ## 🔑 Flags das integrações da fase Escala (só FLAGS, não segredos): habilitam
+    ##    os endpoints de disparo (/v1/integrations/*, /payouts/:id/pay-pix). Deixe
+    ##    "false" no MVP — os SEGREDOS ficam só no worker (menor privilégio).
+      - ASAAS_ENABLED=${ASAAS_ENABLED:-false}
+      - OLIST_ENABLED=${OLIST_ENABLED:-false}
+      - METRICS_SYNC_ENABLED=${METRICS_SYNC_ENABLED:-false}
     ## NOTA: a API só ENFILEIRA jobs — quem chama Anthropic/Asaas/Evolution/
     ##       Browserless é o worker. Por menor-privilégio, esses segredos NÃO
     ##       são injetados aqui (ficam só no openrate_worker).
@@ -91,6 +113,19 @@ services:
     deploy:
       mode: replicated
       replicas: 1
+      ## Atualização segura: sobe 1 de cada vez e, se a nova task não ficar
+      ## saudável em 'monitor', REVERTE automaticamente (não deixa deploy quebrado
+      ## no ar). stop-first é seguro p/ o Redis com estado (nunca 2 no mesmo volume).
+      update_config:
+        parallelism: 1
+        order: stop-first
+        delay: 5s
+        monitor: 20s
+        failure_action: rollback
+        max_failure_ratio: 0
+      rollback_config:
+        parallelism: 1
+        order: stop-first
       placement:
         constraints:
           - node.role == manager
@@ -142,10 +177,12 @@ services:
     ## 🔑 IA — geração de ideias/roteiros (fila ai-script-generation)
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - AI_MODEL_PRIMARY=claude-sonnet-5
-      - AI_MODEL_FALLBACK=claude-haiku-4-5
+      - AI_MODEL_FALLBACK=claude-haiku-4-5-20251001
     ## 🔑 Pagamentos — filas commission-settlement e payout-pix (Asaas)
       - ASAAS_API_KEY=${ASAAS_API_KEY}
       - ASAAS_BASE_URL=${ASAAS_BASE_URL}
+    ## 🔑 ERP — fila olist-sync (conector Olist/Tiny; fase Escala)
+      - OLIST_API_KEY=${OLIST_API_KEY:-}
     ## 🔑 WhatsApp — fila notifications (Evolution API)
       - EVOLUTION_API_URL=http://evolution_evolution_api:8080
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
@@ -162,6 +199,19 @@ services:
     deploy:
       mode: replicated
       replicas: 1
+      ## Atualização segura: sobe 1 de cada vez e, se a nova task não ficar
+      ## saudável em 'monitor', REVERTE automaticamente (não deixa deploy quebrado
+      ## no ar). stop-first é seguro p/ o Redis com estado (nunca 2 no mesmo volume).
+      update_config:
+        parallelism: 1
+        order: stop-first
+        delay: 5s
+        monitor: 20s
+        failure_action: rollback
+        max_failure_ratio: 0
+      rollback_config:
+        parallelism: 1
+        order: stop-first
       placement:
         constraints:
           - node.role == manager
@@ -193,6 +243,19 @@ services:
     deploy:
       mode: replicated
       replicas: 1
+      ## Atualização segura: sobe 1 de cada vez e, se a nova task não ficar
+      ## saudável em 'monitor', REVERTE automaticamente (não deixa deploy quebrado
+      ## no ar). stop-first é seguro p/ o Redis com estado (nunca 2 no mesmo volume).
+      update_config:
+        parallelism: 1
+        order: stop-first
+        delay: 5s
+        monitor: 20s
+        failure_action: rollback
+        max_failure_ratio: 0
+      rollback_config:
+        parallelism: 1
+        order: stop-first
       placement:
         constraints:
           - node.role == manager
@@ -222,9 +285,12 @@ services:
       - TZ=America/Sao_Paulo
     ## 🔑 Filas — leitura das filas no Redis dedicado (nome completo openrate_openrate_redis)
       - REDIS_URL=redis://:${OPENRATE_REDIS_PASSWORD}@openrate_openrate_redis:6379
+    ## 🔑 Basic auth de APLICAÇÃO (2ª camada além do Traefik; protege leste-oeste na overlay)
+      - BULLBOARD_USER=${BULLBOARD_USER:-openrate}
+      - BULLBOARD_PASSWORD=${BULLBOARD_PASSWORD}
     healthcheck:
-      ## usa o node da própria imagem (Node >= 18 tem fetch) — não depende de wget/curl na base
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      ## /healthz é liberado (sem auth) só p/ o healthcheck; a UI exige basic auth
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -232,6 +298,19 @@ services:
     deploy:
       mode: replicated
       replicas: 1
+      ## Atualização segura: sobe 1 de cada vez e, se a nova task não ficar
+      ## saudável em 'monitor', REVERTE automaticamente (não deixa deploy quebrado
+      ## no ar). stop-first é seguro p/ o Redis com estado (nunca 2 no mesmo volume).
+      update_config:
+        parallelism: 1
+        order: stop-first
+        delay: 5s
+        monitor: 20s
+        failure_action: rollback
+        max_failure_ratio: 0
+      rollback_config:
+        parallelism: 1
+        order: stop-first
       placement:
         constraints:
           - node.role == manager

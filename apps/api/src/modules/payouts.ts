@@ -64,6 +64,11 @@ class PayoutsController {
 
   @Get()
   list(@CurrentTenant() t: TenantContext, @Query('status') status?: string) {
+    // Valida o enum ANTES do cast no SQL (senão um ?status=foo vira 500).
+    const ALLOWED = ['pending_approval', 'approved', 'processing', 'paid', 'cancelled'];
+    if (status && !ALLOWED.includes(status)) {
+      throw new BadRequestException(`status inválido (use: ${ALLOWED.join(', ')})`);
+    }
     return this.pg.withTenant(t, (c) =>
       c
         .query(

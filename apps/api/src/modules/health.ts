@@ -1,4 +1,5 @@
-import { Controller, Get, Module } from '@nestjs/common';
+import { Controller, Get, Module, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { Redis } from 'ioredis';
 import { PgService } from '../common/pg.service';
 import { Public } from '../common/tenant';
@@ -10,7 +11,9 @@ class HealthController {
 
   @Public()
   @Get()
-  async health(): Promise<{ status: string; db: boolean; redis: boolean }> {
+  async health(
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ status: string; db: boolean; redis: boolean }> {
     const db = await this.pg
       .query('SELECT 1')
       .then(() => true)
@@ -27,7 +30,11 @@ class HealthController {
       redis.disconnect();
     }
 
-    return { status: db && redisOk ? 'ok' : 'degraded', db, redis: redisOk };
+    // 503 quando degradado → o healthcheck do container (curl -f) falha e o Swarm
+    // não roteia tráfego para uma réplica sem banco/redis.
+    const ok = db && redisOk;
+    res.status(ok ? 200 : 503);
+    return { status: ok ? 'ok' : 'degraded', db, redis: redisOk };
   }
 }
 

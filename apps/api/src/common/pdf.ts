@@ -11,9 +11,20 @@ export interface PdfLine {
   bold?: boolean;
 }
 
+// Transliteração de pontuação comum fora do Latin-1 + descarte do resto (o PDF é
+// escrito em latin1; sem isto, travessão '—', aspas curvas e emojis corrompem).
+function toLatin1(s: string): string {
+  return s
+    .replace(/[‐-―]/g, '-') // travessões/hífens
+    .replace(/[‘’‛]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/…/g, '...')
+    .replace(/[^\x00-\xFF]/g, ''); // qualquer coisa fora de latin1 (emoji etc.)
+}
+
 // Escapa os caracteres especiais de string literal PDF: \ ( )
 function esc(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  return toLatin1(s).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 }
 
 const PAGE_W = 595; // A4 em pontos

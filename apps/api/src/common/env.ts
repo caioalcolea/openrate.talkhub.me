@@ -20,12 +20,16 @@ export const env = {
   asaasWebhookToken: process.env.ASAAS_WEBHOOK_TOKEN ?? '',
   docusealWebhookToken: process.env.DOCUSEAL_WEBHOOK_TOKEN ?? '',
 
-  // Integrações da fase Escala (stubs): cada uma só é considerada HABILITADA
-  // quando a credencial/flag existe. Enquanto off, os endpoints de disparo
-  // respondem "não habilitado" (501) em vez de enfileirar jobs inertes.
+  // Segredo que libera POST /v1/auth/bootstrap (criação do 1º super_admin).
+  // Sem ele o endpoint fica desabilitado (fail-closed).
+  bootstrapToken: process.env.BOOTSTRAP_TOKEN ?? '',
+
+  // Integrações da fase Escala (stubs): habilitadas por FLAG explícita injetada no
+  // container da API (os SEGREDOS ficam só no worker — menor privilégio). Enquanto
+  // off, os endpoints de disparo respondem 501 em vez de enfileirar jobs inertes.
   integrations: {
-    asaas: !!process.env.ASAAS_API_KEY,
-    olist: !!process.env.OLIST_API_KEY,
+    asaas: process.env.ASAAS_ENABLED === 'true',
+    olist: process.env.OLIST_ENABLED === 'true',
     metricsSync: process.env.METRICS_SYNC_ENABLED === 'true',
   },
 
@@ -48,10 +52,16 @@ export function assertProductionEnv(): void {
   if (env.nodeEnv !== 'production') return;
   const bad: string[] = [];
   // JWT_SECRET é ESSENCIAL: a API assina e valida o próprio JWT com ele.
-  // Sem um segredo real, qualquer um forjaria um token (bypass total de auth).
-  if (!env.jwtSecret || env.jwtSecret === DEFAULT_JWT_SECRET) bad.push('JWT_SECRET');
+  // Sem um segredo real (ou curto), qualquer um forjaria um token (bypass de auth).
+  if (!env.jwtSecret || env.jwtSecret === DEFAULT_JWT_SECRET || env.jwtSecret.length < 32) {
+    bad.push('JWT_SECRET (defina >= 32 chars aleatórios)');
+  }
   if (!env.s3SecretKey || env.s3SecretKey === 'minioadmin') bad.push('S3_SECRET_KEY');
-  if (env.databaseUrl.includes('dev_openrate')) bad.push('DATABASE_URL');
+  if (!env.s3AccessKey || env.s3AccessKey === 'minioadmin') bad.push('S3_ACCESS_KEY');
+  if (env.databaseUrl.includes('dev_openrate') || env.databaseUrl.includes('@localhost')) bad.push('DATABASE_URL');
+  if (env.redisUrl.includes('@localhost') || env.redisUrl === 'redis://localhost:6379') bad.push('REDIS_URL');
+  // BOOTSTRAP_TOKEN protege a criação do 1º super_admin — obrigatório em produção.
+  if (!env.bootstrapToken || env.bootstrapToken.length < 16) bad.push('BOOTSTRAP_TOKEN (defina >= 16 chars)');
   if (bad.length) {
     throw new Error(
       `Env de produção inválida ou com valores de dev: ${bad.join(', ')}. ` +

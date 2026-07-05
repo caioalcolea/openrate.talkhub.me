@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { CoreModule } from './core.module';
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { AuditInterceptor } from './common/audit.interceptor';
@@ -29,6 +30,10 @@ import { WebhooksModule } from './modules/webhooks';
 
 @Module({
   imports: [
+    // Rate limit global (in-memory; API é single-replica). Default generoso;
+    // as rotas públicas de auth têm limites bem mais estritos (@Throttle) contra
+    // brute-force/credential-stuffing e DoS de scrypt.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     CoreModule,
     HealthModule,
     AuthModule,
@@ -55,6 +60,8 @@ import { WebhooksModule } from './modules/webhooks';
     WebhooksModule,
   ],
   providers: [
+    // ThrottlerGuard primeiro: limita por IP ANTES de qualquer processamento caro.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     // JwtAuthGuard global: valida JWT + resolve tenant + checa @Roles.
     // Rotas @Public() (health, auth/login, webhooks) são liberadas.
     { provide: APP_GUARD, useClass: JwtAuthGuard },

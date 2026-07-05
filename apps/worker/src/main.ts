@@ -1,6 +1,6 @@
 import { Worker, type Job } from 'bullmq';
 import { QUEUES, DEFAULT_QUEUE_CONCURRENCY, type QueueName } from '@openrate/shared';
-import { redisConnection } from './lib/env';
+import { redisConnection, assertProductionEnv } from './lib/env';
 import { logger } from './lib/logger';
 import { pool } from './lib/pg';
 import { processAiScript } from './processors/ai-script-generation';
@@ -34,6 +34,9 @@ const handlers: Record<QueueName, (job: Job<any>) => Promise<void>> = {
   'olist-sync': processOlistSync,
   notifications: processNotification,
 };
+
+// Fail-closed antes de conectar em qualquer recurso.
+assertProductionEnv();
 
 const workers: Worker[] = [];
 

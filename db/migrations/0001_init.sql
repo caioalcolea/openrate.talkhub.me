@@ -1108,6 +1108,26 @@ $$;
 REVOKE ALL ON FUNCTION openrate.auth_find_user(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION openrate.auth_find_user(text) TO openrate_app;
 
+-- Revalidação em cada refresh de token: recarrega o usuário por id (sub do JWT)
+-- SEM claim de tenant, p/ a API re-checar active/role/org/store do BANCO (revoga
+-- conta desativada/rebaixada dentro do TTL do access, sem esperar o refresh vencer).
+CREATE OR REPLACE FUNCTION openrate.auth_find_user_by_id(p_id uuid)
+RETURNS TABLE(
+  id uuid, email text, password_hash text,
+  organization_id uuid, store_id uuid, role openrate.user_role,
+  full_name text, active boolean
+)
+LANGUAGE sql SECURITY DEFINER SET search_path = openrate AS $$
+  SELECT u.id, u.email, u.password_hash, u.organization_id,
+         (SELECT us.store_id FROM openrate.user_stores us WHERE us.user_id = u.id LIMIT 1) AS store_id,
+         u.role, u.full_name, u.active
+  FROM openrate.users u
+  WHERE u.id = p_id AND u.deleted_at IS NULL
+  LIMIT 1;
+$$;
+REVOKE ALL ON FUNCTION openrate.auth_find_user_by_id(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION openrate.auth_find_user_by_id(uuid) TO openrate_app;
+
 -- Bootstrap do PRIMEIRO super_admin (organization_id NULL). AUTO-DESABILITA: só cria
 -- se ainda não houver nenhum super_admin — seguro para expor num endpoint público de
 -- primeiro acesso (POST /v1/auth/bootstrap). Depois disso sempre falha (23505).
@@ -1502,6 +1522,7 @@ DROP TABLE IF EXISTS openrate.organizations        CASCADE;
 -- Funções
 DROP FUNCTION IF EXISTS openrate.click_affiliate_link(text);
 DROP FUNCTION IF EXISTS openrate.bootstrap_super_admin(text, text, text);
+DROP FUNCTION IF EXISTS openrate.auth_find_user_by_id(uuid);
 DROP FUNCTION IF EXISTS openrate.auth_find_user(text);
 DROP FUNCTION IF EXISTS openrate.set_updated_at();
 DROP FUNCTION IF EXISTS openrate.is_super_admin();
