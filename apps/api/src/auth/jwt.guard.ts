@@ -44,6 +44,13 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('token inválido');
     }
 
+    // Refresh tokens têm o mesmo shape de claims (só um typ='refresh' a mais) e
+    // NÃO podem autenticar chamadas de API — senão o TTL de 12h do access token
+    // seria contornado pelos 30 dias do refresh. Só o /v1/auth/refresh os aceita.
+    if ((decoded as { typ?: unknown } | null)?.typ === 'refresh') {
+      throw new UnauthorizedException('refresh token não pode ser usado como access token');
+    }
+
     const parsed = jwtClaimsSchema.safeParse(decoded);
     if (!parsed.success) throw new UnauthorizedException('claims inválidos');
     if (parsed.data.app_metadata.product !== OPENRATE_PRODUCT) {

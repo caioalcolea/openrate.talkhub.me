@@ -1,13 +1,26 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from '../../../../lib/api';
+import type { GoalMetric } from '@openrate/shared';
+import { brl } from '../../../../lib/format';
 
 interface Progress {
-  target_videos: number;
-  videos_submitted: number;
-  videos_approved: number;
+  metric: GoalMetric;
+  target_value: string;
+  current_value: string;
   goal_met: boolean;
   progress_pct: number;
+}
+
+const METRIC_LABELS: Record<GoalMetric, string> = {
+  videos_recorded: 'vídeos gravados',
+  videos_published: 'vídeos publicados',
+  views: 'visualizações',
+  affiliate_revenue: 'em vendas',
+};
+
+function fmt(metric: GoalMetric, value: string): string {
+  return metric === 'affiliate_revenue' ? brl(value) : String(Number(value));
 }
 
 export default function AppGoals() {
@@ -23,7 +36,7 @@ export default function AppGoals() {
       {rows.map((r, i) => (
         <div key={i} className="card">
           <p className="text-sm">
-            {r.videos_submitted}/{r.target_videos} vídeos enviados · {r.videos_approved} aprovados
+            {fmt(r.metric, r.current_value)}/{fmt(r.metric, r.target_value)} {METRIC_LABELS[r.metric]}
           </p>
           <div className="mt-2 h-2 w-full rounded bg-neutral-200">
             <div

@@ -1,4 +1,4 @@
-import { COMMISSION_RULE_WEIGHTS } from './enums';
+import { COMMISSION_RULE_WEIGHTS, type CommissionBase } from './enums';
 
 // Motor de comissão — resolução da regra "mais específica vence" e rateio.
 // Puro (sem I/O), para ser coberto por testes de tabela-verdade na API.
@@ -13,6 +13,7 @@ export interface CommissionRule {
   creatorPct: number;
   storePct: number;
   platformPct: number;
+  calcBase?: CommissionBase; // base do rateio (default: comissão de afiliado)
 }
 
 export interface SaleContext {
@@ -71,6 +72,15 @@ function round2(n: number): number {
 // total (arredondamento em split 50/50 de centavo ímpar), são limitados para
 // caber; a plataforma absorve exatamente o resíduo (>= 0). Se Σpct < 100, a
 // sobra simplesmente não é lançada.
+// Escolhe a base do rateio conforme a regra: valor bruto da venda x comissão de
+// afiliado (default). Cai para o bruto se o valor comissionável não for informado.
+export function commissionBaseAmount(
+  rule: Pick<CommissionRule, 'calcBase'>,
+  amounts: { gross: number; commissionable: number | null },
+): number {
+  return rule.calcBase === 'gross_sale' ? amounts.gross : amounts.commissionable ?? amounts.gross;
+}
+
 export function splitCommission(base: number, rule: CommissionRule): CommissionSplit {
   const totalPct = rule.creatorPct + rule.storePct + rule.platformPct;
   const total = round2((base * totalPct) / 100);

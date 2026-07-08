@@ -3,6 +3,7 @@ export * from './auth';
 export * from './queues';
 export * from './schemas';
 export * from './commission';
+export * from './validators';
 
 // Prefixos do bucket openrate-media (MinIO).
 export const S3_PREFIXES = {

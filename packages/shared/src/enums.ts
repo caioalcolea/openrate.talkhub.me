@@ -68,6 +68,15 @@ export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
 export const GOAL_PERIODS = ['daily', 'weekly', 'monthly'] as const;
 export type GoalPeriod = (typeof GOAL_PERIODS)[number];
 
+// Métrica medida por uma meta (ver v_goal_progress_daily / migration 0007).
+export const GOAL_METRICS = [
+  'videos_recorded',
+  'videos_published',
+  'views',
+  'affiliate_revenue',
+] as const;
+export type GoalMetric = (typeof GOAL_METRICS)[number];
+
 export const INTEGRATION_PROVIDERS = [
   'olist',
   'tiny',
@@ -100,3 +109,27 @@ export const COMMISSION_RULE_WEIGHTS = {
   organization: 2,
   platform: 1,
 } as const;
+
+// --- Enums adicionados na migration 0006 (estrutura completa dos cadastros) ---
+
+// Organização — plano e status de assinatura.
+export const ORG_PLANS = ['free', 'pro', 'rede'] as const;
+export type OrgPlan = (typeof ORG_PLANS)[number];
+
+export const ORG_STATUSES = ['active', 'suspended', 'churned'] as const;
+export type OrgStatus = (typeof ORG_STATUSES)[number];
+
+// Produto — tipo e unidade de medida.
+export const PRODUCT_TYPES = ['simple', 'kit', 'variation_parent'] as const;
+export type ProductType = (typeof PRODUCT_TYPES)[number];
+
+export const PRODUCT_UNITS = ['UN', 'KG', 'CX', 'PCT'] as const;
+export type ProductUnit = (typeof PRODUCT_UNITS)[number];
+
+// Regra de comissão — base do rateio (comissão de afiliado x valor bruto da venda).
+export const COMMISSION_BASES = ['affiliate_payout', 'gross_sale'] as const;
+export type CommissionBase = (typeof COMMISSION_BASES)[number];
+
+// Tipos de chave Pix (espelha o CHECK de users.pix_key_type; 'evp' = aleatória).
+export const PIX_KEY_TYPES = ['cpf', 'cnpj', 'email', 'phone', 'evp'] as const;
+export type PixKeyType = (typeof PIX_KEY_TYPES)[number];

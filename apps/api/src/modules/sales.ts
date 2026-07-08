@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Module, Param, Post } from '@nestjs/common';
+import { Body, ConflictException, Controller, Get, Header, Module, Param, Post } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import {
   affiliateSaleRowSchema,
@@ -8,7 +8,12 @@ import {
 import { PgService } from '../common/pg.service';
 import { CurrentTenant } from '../common/tenant';
 import { Roles } from '../auth/roles.decorator';
+import { notifyUser } from '../common/notify';
+import { QueuesService } from '../queues.service';
+import { toCsv } from '../common/csv';
 import { ingestConfirmedSale, reverseSale, type AffiliateLinkRef } from '../common/commission-ingest';
+
+type CreatorCredit = { userId: string; amount: number };
 
 interface RowResult {
   line: number;
@@ -42,10 +47,10 @@ async function ingestRow(
   orgId: string,
   row: AffiliateSaleRow,
   line: number,
-): Promise<RowResult> {
+): Promise<{ res: RowResult; credit: CreatorCredit | null }> {
   const resolved = await resolveLink(c, row.affiliateShortCode);
   if (!resolved) {
-    return { line, externalId: row.externalId, status: 'error', message: 'short_code não encontrado' };
+    return { res: { line, externalId: row.externalId, status: 'error', message: 'short_code não encontrado' }, credit: null };
   }
   const res = await ingestConfirmedSale(c, {
     orgId,
@@ -58,9 +63,15 @@ async function ingestRow(
     categoryId: resolved.categoryId,
     rawPayload: row,
   });
-  if (res.duplicated) return { line, externalId: row.externalId, status: 'duplicated' };
-  if (res.entries === 0) return { line, externalId: row.externalId, status: 'no_rule', message: 'nenhuma regra de comissão aplicável' };
-  return { line, externalId: row.externalId, status: 'imported' };
+  if (res.duplicated) return { res: { line, externalId: row.externalId, status: 'duplicated' }, credit: null };
+  if (res.entries === 0) {
+    // Distingue "sem regra" de "regra aplicável, mas rateio zero" (mensagem honesta).
+    const message = res.ruleId
+      ? 'regra aplicável, mas o rateio resultou em zero'
+      : 'nenhuma regra de comissão aplicável';
+    return { res: { line, externalId: row.externalId, status: 'no_rule', message }, credit: null };
+  }
+  return { res: { line, externalId: row.externalId, status: 'imported' }, credit: res.creatorCredit };
 }
 
 // Parser CSV simples (template próprio documentado, sem campos com vírgula).
@@ -88,7 +99,21 @@ function rowFromCsv(header: string[], cols: string[]): unknown {
 
 @Controller()
 class SalesController {
-  constructor(private readonly pg: PgService) {}
+  constructor(
+    private readonly pg: PgService,
+    private readonly queues: QueuesService,
+  ) {}
+
+  // Notifica o creator sobre a comissão creditada (best-effort, fora da transação).
+  private async notifyCredit(t: TenantContext, credit: CreatorCredit | null): Promise<void> {
+    if (!credit) return;
+    await notifyUser(this.pg, this.queues, t, {
+      userId: credit.userId,
+      template: 'commission_credited',
+      body: `Você recebeu uma comissão de R$ ${credit.amount.toFixed(2)}.`,
+      vars: { amount: credit.amount.toFixed(2) },
+    });
+  }
 
   // Venda avulsa (formulário manual). Roda o motor de comissão.
   @Post('affiliate-sales')
@@ -102,7 +127,9 @@ class SalesController {
       return { line: 1, status: 'error', message: parsed.error.issues.map((i) => i.message).join('; ') };
     }
     if (!t.orgId) throw new Error('org ausente');
-    return this.pg.withTenant(t, (c) => ingestRow(c, t.orgId as string, parsed.data, 1));
+    const { res, credit } = await this.pg.withTenant(t, (c) => ingestRow(c, t.orgId as string, parsed.data, 1));
+    await this.notifyCredit(t, credit);
+    return res;
   }
 
   // Importação em lote (CSV: platform,externalId,affiliateShortCode,amount,commissionableAmount,soldAt).
@@ -132,7 +159,9 @@ class SalesController {
         continue;
       }
       try {
-        results.push(await this.pg.withTenant(t, (c) => ingestRow(c, t.orgId as string, parsed.data, line)));
+        const { res, credit } = await this.pg.withTenant(t, (c) => ingestRow(c, t.orgId as string, parsed.data, line));
+        results.push(res);
+        await this.notifyCredit(t, credit);
       } catch (e) {
         results.push({ line, externalId: parsed.data.externalId, status: 'error', message: String(e).slice(0, 200) });
       }
@@ -157,6 +186,25 @@ class SalesController {
     );
   }
 
+  // Export CSV das vendas de afiliado (conciliação com as plataformas).
+  @Get('affiliate-sales/export.csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="vendas-afiliado.csv"')
+  exportSales(@CurrentTenant() t: TenantContext): Promise<string> {
+    return this.pg.withTenant(t, async (c) => {
+      const r = await c.query(
+        `SELECT id, platform, external_id, status, gross_amount, commissionable_amount, occurred_at
+           FROM openrate.affiliate_sales ORDER BY occurred_at DESC LIMIT 5000`,
+      );
+      return toCsv(
+        ['id', 'plataforma', 'id_externo', 'status', 'valor_bruto', 'valor_comissionavel', 'ocorrido_em'],
+        r.rows.map((x) => [
+          x.id, x.platform, x.external_id, x.status, x.gross_amount, x.commissionable_amount, x.occurred_at,
+        ]),
+      );
+    });
+  }
+
   // Extrato (livro-razão) de lançamentos de comissão.
   @Get('commission-entries')
   listEntries(@CurrentTenant() t: TenantContext) {
@@ -171,12 +219,44 @@ class SalesController {
     );
   }
 
+  // Export CSV do livro-razão de comissões (extrato contábil).
+  @Get('commission-entries/export.csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="comissoes.csv"')
+  exportEntries(@CurrentTenant() t: TenantContext): Promise<string> {
+    return this.pg.withTenant(t, async (c) => {
+      const r = await c.query(
+        `SELECT id, affiliate_sale_id, beneficiary_type, user_id, store_id,
+                percentage, base_amount, amount, status, payable_at, reversal_of
+           FROM openrate.commission_entries ORDER BY created_at DESC LIMIT 5000`,
+      );
+      return toCsv(
+        ['id', 'venda_id', 'beneficiario', 'user_id', 'store_id', 'percentual', 'base', 'valor', 'status', 'pagavel_em', 'estorno_de'],
+        r.rows.map((x) => [
+          x.id, x.affiliate_sale_id, x.beneficiary_type, x.user_id, x.store_id,
+          x.percentage, x.base_amount, x.amount, x.status, x.payable_at, x.reversal_of,
+        ]),
+      );
+    });
+  }
+
   // Estorno de venda (cancelamento/devolução): lança espelhos negativos.
   @Post('affiliate-sales/:id/cancel')
   @Roles('manager')
   cancel(@CurrentTenant() t: TenantContext, @Param('id') id: string) {
     if (!t.orgId) throw new Error('org ausente');
     return this.pg.withTenant(t, async (c) => {
+      // Se já houver lançamento consolidado/pago (settled/paid), o estorno simples
+      // deixaria o payout pagar uma venda cancelada. Bloqueia → clawback manual.
+      const locked = await c.query(
+        `SELECT 1 FROM openrate.commission_entries
+          WHERE affiliate_sale_id = $1 AND reversal_of IS NULL AND amount > 0
+            AND status IN ('settled','paid') LIMIT 1`,
+        [id],
+      );
+      if ((locked.rowCount ?? 0) > 0) {
+        throw new ConflictException('comissões já liquidadas/pagas — estorno exige clawback manual');
+      }
       const reversed = await reverseSale(c, id, t.orgId as string);
       return { saleId: id, reversedEntries: reversed };
     });

@@ -7,13 +7,17 @@ import {
   Post,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { timingSafeEqual } from 'node:crypto';
 import { Public } from '../common/tenant';
 import { env } from '../common/env';
 
 // Fail-closed: sem token configurado o webhook NÃO aceita nada (evita fail-open).
+// Comparação em tempo constante (evita timing oracle sobre o segredo do webhook).
 function checkToken(configured: string, received: string | undefined): void {
   if (!configured) throw new ServiceUnavailableException('webhook não configurado');
-  if (received !== configured) throw new ForbiddenException('token inválido');
+  const a = Buffer.from(received ?? '');
+  const b = Buffer.from(configured);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) throw new ForbiddenException('token inválido');
 }
 
 // Webhooks de terceiros — autenticados por segredo próprio, nunca por JWT.

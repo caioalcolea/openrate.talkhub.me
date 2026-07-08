@@ -14,7 +14,7 @@ export const env = {
 
   anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
   aiModelPrimary: process.env.AI_MODEL_PRIMARY ?? 'claude-sonnet-5',
-  aiModelFallback: process.env.AI_MODEL_FALLBACK ?? 'claude-haiku-4-5',
+  aiModelFallback: process.env.AI_MODEL_FALLBACK ?? 'claude-haiku-4-5-20251001',
 
   asaasApiKey: process.env.ASAAS_API_KEY ?? '',
   asaasBaseUrl: process.env.ASAAS_BASE_URL ?? 'https://api-sandbox.asaas.com/v3',
@@ -26,6 +26,21 @@ export const env = {
   browserlessUrl: process.env.BROWSERLESS_URL ?? '',
   whisperModel: process.env.WHISPER_MODEL ?? 'small',
 };
+
+// Fail-closed: em produção, recusa subir com segredos ausentes/de dev — senão o
+// worker conectaria (ou tentaria) em recursos errados silenciosamente.
+export function assertProductionEnv(): void {
+  if (env.nodeEnv !== 'production') return;
+  const bad: string[] = [];
+  if (env.databaseUrl.includes('dev_openrate') || env.databaseUrl.includes('@localhost')) bad.push('DATABASE_URL');
+  if (env.redisUrl.includes('@localhost') || env.redisUrl === 'redis://localhost:6379') bad.push('REDIS_URL');
+  if (!env.s3SecretKey || env.s3SecretKey === 'minioadmin') bad.push('S3_SECRET_KEY');
+  if (!env.s3AccessKey || env.s3AccessKey === 'minioadmin') bad.push('S3_ACCESS_KEY');
+  if (!env.anthropicApiKey) bad.push('ANTHROPIC_API_KEY');
+  if (bad.length) {
+    throw new Error(`Worker: env de produção inválida ou com valores de dev: ${bad.join(', ')}.`);
+  }
+}
 
 export function redisConnection() {
   const u = new URL(env.redisUrl);

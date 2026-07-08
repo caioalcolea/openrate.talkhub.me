@@ -10,6 +10,10 @@ async function bootstrap(): Promise<void> {
   assertProductionEnv();
   const app = await NestFactory.create(AppModule, { bodyParser: true });
 
+  // Atrás do Traefik: confia no 1º proxy p/ que req.ip reflita o X-Forwarded-For
+  // real (rate limit por IP de cliente e IP correto no audit_log).
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   // correlation id fim a fim (propagado para os jobs).
   app.use((req: Request, res: Response, next: NextFunction) => {
     const id = (req.headers['x-request-id'] as string) || randomUUID();

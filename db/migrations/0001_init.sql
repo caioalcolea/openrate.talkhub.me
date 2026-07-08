@@ -1,28 +1,44 @@
 -- ============================================================================
--- OpenRate — Migration 0001_init
--- Schema dedicado "openrate" no Postgres 15 compartilhado (supabase_db).
+-- OpenRate — Migration 0001_init (CONSOLIDADA)
+-- Schema dedicado "openrate" no Postgres compartilhado.
+--
+-- Esta é a migration inicial ÚNICA e autoritativa: consolida (squash) as antigas
+-- 0001..0007 num só arquivo. NÃO há dados de produção — o resultado de aplicar
+-- este arquivo numa base limpa é EXATAMENTE o mesmo schema de aplicar 0001→0007
+-- em ordem. Deltas foram DOBRADOS nas definições limpas (sem guardas de ALTER):
+--   * 0002 — resolver público de link de afiliado (função SECURITY DEFINER +
+--            policy só-do-owner em affiliate_links);
+--   * 0003 — seed dos video_types GLOBAIS (organization_id NULL);
+--   * 0004 — auth própria (id auto-gerado + password_hash, índice CI, policy
+--            só-do-owner em users, funções auth_find_user/bootstrap_super_admin);
+--   * 0005 — openrate.jwt_claims() SEM o fallback antigo para auth.jwt();
+--   * 0006 — enums novos + colunas de cadastro (organizations/stores/users/
+--            products/product_images/video_types/customers/videos/payouts/
+--            commission_rules); coluna customers.cpf REMOVIDA;
+--   * 0007 — metas genéricas: goals.target_videos/target_sales_amount REMOVIDAS,
+--            goals.metric/target_value ADICIONADAS; view v_goal_progress_daily
+--            reescrita para medir a métrica escolhida.
 --
 -- PRÉ-REQUISITOS (runbook de provisionamento, FORA desta migration):
---   1. Role de aplicação criada:
---        CREATE ROLE openrate_app LOGIN PASSWORD '...'
---          NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
---        REVOKE ALL ON SCHEMA public FROM openrate_app;
---   2. Esta migration roda com uma role DONA do schema (ex.: postgres ou
---      openrate_owner) — NUNCA com openrate_app. A role de aplicação não é
---      dona de nenhum objeto, justamente para o RLS valer para ela.
+--   1. Roles openrate_owner (dona) e openrate_app (runtime) já criadas.
+--        openrate_app: LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS.
+--   2. Schema "openrate" já criado (CREATE SCHEMA openrate AUTHORIZATION
+--      openrate_owner) pelo deploy — esta migration NÃO cria schema nem roles.
+--   3. Esta migration roda com a role DONA (openrate_owner) — NUNCA com
+--      openrate_app. A role de aplicação não é dona de nenhum objeto, justamente
+--      para o RLS valer para ela.
 --
 -- COMO APLICAR:
 --   * dbmate (nativo):  dbmate --migrations-table openrate.schema_migrations up
---     (o arquivo traz os marcadores de migracao up/down em coluna 0)
 --   * psql direto (sem o bloco down): cortar do marcador down em diante com o
 --     sed ANCORADO em inicio de linha (^) para nao casar com esta documentacao —
 --       sed '/^-- migrate:down/,$d' 0001_init.sql | psql "$URL" --single-transaction -v ON_ERROR_STOP=1
---     (o runbook passo 3.3 ja faz isso; NUNCA rodar o arquivo inteiro no psql,
---      senao o bloco down ao final apaga o schema recem-criado)
+--     (NUNCA rodar o arquivo inteiro no psql, senao o bloco down ao final apaga
+--      os objetos recem-criados)
 --
 -- GARANTIAS:
 --   - Nenhum objeto criado fora do schema "openrate" (exceto a extensão
---     pgcrypto, que no Supabase já existe no schema "extensions").
+--     pgcrypto, que já existe no schema "extensions").
 --   - Nenhuma alteração em schemas de outros produtos (auth, storage, public).
 -- ============================================================================
 
@@ -55,8 +71,8 @@ END $$;
 --   O RLS aqui é ISOLAMENTO DE CONSULTA (defense-in-depth), NÃO uma fronteira
 --   contra a própria role de runtime. openrate_app conecta direto e todo o RLS
 --   deriva de current_setting('request.jwt.claims'); EXECUTE em set_config é
---   PUBLIC no Supabase. Logo, QUALQUER SQL arbitrário rodando como openrate_app
---   (credencial vazada ou UMA injeção de SQL) pode forjar
+--   PUBLIC. Logo, QUALQUER SQL arbitrário rodando como openrate_app (credencial
+--   vazada ou UMA injeção de SQL) pode forjar
 --   {"app_metadata":{"role":"super_admin"}} e ler/gravar qualquer tenant.
 --   A FRONTEIRA REAL é a API: valida o JWT (HS256) e só então injeta os claims
 --   com set_config(..., is_local=TRUE) DENTRO da transação do request (ver
@@ -70,7 +86,7 @@ END $$;
 
 -- ----------------------------------------------------------------------------
 -- 1. Schema e search_path
---    O schema normalmente já é criado pelo runbook (passo 3.2, como postgres,
+--    O schema normalmente já é criado pelo runbook/deploy (como postgres,
 --    AUTHORIZATION openrate_owner). O guard abaixo evita chamar CREATE SCHEMA
 --    quando ele já existe: `CREATE SCHEMA IF NOT EXISTS` verifica o privilégio
 --    de CREATE no database ANTES da existência e falharia para a role de
@@ -89,17 +105,16 @@ SET search_path TO openrate, public;
 -- ----------------------------------------------------------------------------
 -- 2. Extensões
 --    pgcrypto: usada pela API para cifrar integrations.credentials_enc via
---    pgp_sym_encrypt/pgp_sym_decrypt. No Supabase a extensão JÁ VEM instalada
---    no schema "extensions"; o bloco abaixo só garante idempotência e cobre
---    ambientes de teste (Postgres vanilla, onde cai no schema public).
+--    pgp_sym_encrypt/pgp_sym_decrypt. Normalmente JÁ VEM instalada no schema
+--    "extensions"; o bloco abaixo só garante idempotência e cobre ambientes de
+--    teste (Postgres vanilla, onde cai no schema public).
 --    gen_random_uuid() é nativo do Postgres >= 13 (não depende de pgcrypto).
 -- ----------------------------------------------------------------------------
 DO $$
 BEGIN
-  -- Se pgcrypto já existe (caso do Supabase), NÃO chamar CREATE EXTENSION:
-  -- ela exige privilégio de superusuário/CREATE no database, que a role de
-  -- migração (openrate_owner, NOSUPERUSER) não tem. Só cria em Postgres vanilla
-  -- (teste), onde a migration roda como superuser.
+  -- Se pgcrypto já existe, NÃO chamar CREATE EXTENSION: ela exige privilégio de
+  -- superusuário/CREATE no database, que a role de migração (openrate_owner,
+  -- NOSUPERUSER) não tem. Só cria em Postgres vanilla (teste, como superuser).
   IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto') THEN
     IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'extensions') THEN
       EXECUTE 'CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions';
@@ -111,6 +126,8 @@ END $$;
 
 -- ----------------------------------------------------------------------------
 -- 3. Tipos ENUM (todos no schema openrate)
+--    DB limpo → CREATE TYPE simples, sem guardas. Inclui os enums originais
+--    (0001), os novos de cadastro (0006) e o de métrica de meta (0007).
 -- ----------------------------------------------------------------------------
 CREATE TYPE openrate.user_role AS ENUM (
   'super_admin',   -- equipe OpenRate (organization_id NULL permitido)
@@ -221,17 +238,29 @@ CREATE TYPE openrate.commission_beneficiary AS ENUM (
   'platform'
 );
 
+-- Enums novos de cadastro (dobrados da 0006) ---------------------------------
+CREATE TYPE openrate.org_plan AS ENUM ('free', 'pro', 'rede');
+CREATE TYPE openrate.org_status AS ENUM ('active', 'suspended', 'churned');
+CREATE TYPE openrate.product_type AS ENUM ('simple', 'kit', 'variation_parent');
+CREATE TYPE openrate.product_unit AS ENUM ('UN', 'KG', 'CX', 'PCT');
+CREATE TYPE openrate.commission_base AS ENUM ('affiliate_payout', 'gross_sale');
+
+-- Enum de métrica de meta (dobrado da 0007) ----------------------------------
+CREATE TYPE openrate.goal_metric AS ENUM (
+  'videos_recorded',
+  'videos_published',
+  'views',
+  'affiliate_revenue'
+);
+
 -- ----------------------------------------------------------------------------
--- 4. Funções auxiliares (JWT claims de duas fontes + updated_at)
+-- 4. Funções auxiliares (JWT claims + updated_at + resolver + auth própria)
 -- ----------------------------------------------------------------------------
 
--- Lê os claims do JWT de DUAS fontes, nesta ordem:
---   1) current_setting('request.jwt.claims') — populado pelo PostgREST
---      (supabase_rest) OU pela API NestJS via
---      set_config('request.jwt.claims', <json>, true) em conexão direta.
---   2) auth.jwt() — açúcar do Supabase; protegido por EXCEPTION porque a
---      função pode não existir (Postgres de teste) ou a role pode não ter
---      privilégio no schema auth (caso da openrate_app).
+-- Lê os claims do JWT de current_setting('request.jwt.claims'), populado pela
+-- API via set_config('request.jwt.claims', <json>, true) em conexão direta.
+-- (Versão FINAL da 0005: SEM o antigo fallback para auth.jwt() — a auth é 100%
+-- própria da API; esta é a única fonte de claims.)
 CREATE OR REPLACE FUNCTION openrate.jwt_claims()
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -245,26 +274,15 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN
     claims := NULL;
   END;
-
-  IF claims IS NOT NULL THEN
-    RETURN claims;
-  END IF;
-
-  BEGIN
-    claims := auth.jwt();
-  EXCEPTION WHEN OTHERS THEN
-    claims := NULL;
-  END;
-
   RETURN claims;
 END;
 $$;
 
 COMMENT ON FUNCTION openrate.jwt_claims() IS
-  'Claims do JWT via request.jwt.claims (PostgREST ou set_config da API) com fallback protegido para auth.jwt().';
+  'Claims do JWT lidos de request.jwt.claims (injetados pela API via set_config por transação).';
 
 -- org_id do tenant corrente. Aceita o claim tanto em app_metadata.org_id
--- (formato do gotrue) quanto no topo do JSON (formato simplificado).
+-- quanto no topo do JSON (formato simplificado).
 CREATE OR REPLACE FUNCTION openrate.current_org_id()
 RETURNS uuid
 LANGUAGE plpgsql
@@ -282,7 +300,7 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $$;
 
--- sub do JWT = id do usuário (auth.users.id = openrate.users.id)
+-- sub do JWT = id do usuário (openrate.users.id)
 CREATE OR REPLACE FUNCTION openrate.current_user_id()
 RETURNS uuid
 LANGUAGE plpgsql
@@ -301,8 +319,8 @@ END;
 $$;
 
 -- Role de NEGÓCIO (super_admin/owner/manager/attendant). Lida SEMPRE de
--- app_metadata.role — nunca do claim top-level "role", que no gotrue é a
--- role do Postgres ('authenticated') e não a role do produto.
+-- app_metadata.role — nunca do claim top-level "role" (que costuma ser a
+-- role do Postgres, não a role do produto).
 CREATE OR REPLACE FUNCTION openrate.current_user_role()
 RETURNS text
 LANGUAGE plpgsql
@@ -340,7 +358,11 @@ END;
 $$;
 
 -- ----------------------------------------------------------------------------
--- 5. Tabelas (ordem respeita dependências de FK)
+-- 5. Tabelas (ordem respeita dependências de FK). As colunas dobradas da 0006/
+--    0007 aparecem AO FINAL de cada tabela, na ordem em que os ALTER as
+--    adicionavam (para casar o layout físico/attnum com a base migrada); as
+--    colunas removidas (customers.cpf; goals.target_videos/target_sales_amount)
+--    simplesmente NÃO são declaradas.
 -- ----------------------------------------------------------------------------
 
 -- ===== 5.1 Multi-tenancy ====================================================
@@ -354,6 +376,10 @@ CREATE TABLE openrate.organizations (
   active        boolean NOT NULL DEFAULT true,
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
+  -- dobrado da 0006: nome fantasia + plano/status da assinatura
+  trade_name    text,
+  plan          openrate.org_plan   NOT NULL DEFAULT 'free',
+  status        openrate.org_status NOT NULL DEFAULT 'active',
   CONSTRAINT uq_organizations_slug UNIQUE (slug)
 );
 COMMENT ON TABLE openrate.organizations IS 'Tenant raiz: rede de lojas (cliente do SaaS).';
@@ -369,21 +395,21 @@ CREATE TABLE openrate.stores (
   active          boolean NOT NULL DEFAULT true,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
+  -- dobrado da 0006: contato da loja
+  phone           text,
+  whatsapp        text,
   CONSTRAINT uq_stores_org_slug UNIQUE (organization_id, slug)
 );
 COMMENT ON TABLE openrate.stores IS 'Loja física pertencente a uma organization.';
 
--- Espelho de auth.users (gotrue). id = auth.users.id, SEM FK física:
---   1) o schema "auth" pertence ao gotrue/Supabase — FK cross-schema criaria
---      dependência que quebra upgrades do gotrue e operações da Admin API
---      (delete/restore de usuário falharia por violação de FK do OpenRate);
+-- Usuários do OpenRate. id auto-gerado (dobrado da 0004: DEFAULT gen_random_uuid()).
+-- Mantido em schema próprio, sem FK cross-schema para nenhum schema de auth externo:
+--   1) FK cross-schema criaria dependência que dificulta upgrades e backup/restore;
 --   2) backup/restore por schema (pg_dump -n openrate) ficaria irrestaurável
---      isoladamente com FK apontando para fora do schema;
---   3) a consistência é garantida pelo fluxo de provisionamento (Admin API
---      cria em auth.users e a API insere aqui na mesma operação) + job de
---      reconciliação periódico.
+--      isoladamente com FK apontando para fora do schema.
+--   A auth é própria da API (senha em password_hash; ver funções auth na seção 4).
 CREATE TABLE openrate.users (
-  id                      uuid PRIMARY KEY,        -- MESMO id de auth.users
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),  -- 0004
   organization_id         uuid REFERENCES openrate.organizations(id),
   role                    openrate.user_role NOT NULL DEFAULT 'attendant',
   email                   text NOT NULL,
@@ -401,6 +427,10 @@ CREATE TABLE openrate.users (
   deleted_at              timestamptz,             -- soft delete (libera o e-mail)
   created_at              timestamptz NOT NULL DEFAULT now(),
   updated_at              timestamptz NOT NULL DEFAULT now(),
+  -- dobrado da 0004: hash da senha (scrypt, calculado no Node)
+  password_hash           text,
+  -- dobrado da 0006: troca de senha obrigatória no 1º acesso
+  must_change_password    boolean NOT NULL DEFAULT false,
   -- Exceção documentada: só super_admin (equipe OpenRate) vive sem org.
   CONSTRAINT ck_users_org_required CHECK (organization_id IS NOT NULL OR role = 'super_admin')
 );
@@ -485,6 +515,25 @@ CREATE TABLE openrate.products (
   active          boolean NOT NULL DEFAULT true,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
+  -- dobrado da 0006: identificação, fiscal, preços, descrição, SEO, logística
+  model                   text,
+  product_type            openrate.product_type NOT NULL DEFAULT 'simple',
+  unit                    openrate.product_unit,
+  cost_price              numeric(14,2) CHECK (cost_price IS NULL OR cost_price >= 0),
+  short_description       text,
+  tags                    text[] NOT NULL DEFAULT '{}',
+  seo_title               text,
+  seo_description         text,
+  institutional_video_url text,
+  ncm                     text,
+  cest                    text,
+  fiscal_origin           text,
+  weight_gross_kg         numeric(10,3),
+  weight_net_kg           numeric(10,3),
+  height_cm               numeric(10,2),
+  width_cm                numeric(10,2),
+  length_cm               numeric(10,2),
+  items_per_box           integer CHECK (items_per_box IS NULL OR items_per_box > 0),
   -- Única exceção de tenancy prevista na spec: catálogo global da plataforma.
   CONSTRAINT ck_products_platform_org CHECK (
     (scope = 'platform' AND organization_id IS NULL)
@@ -503,7 +552,9 @@ CREATE TABLE openrate.product_images (
   alt             text,
   position        integer NOT NULL DEFAULT 0,
   created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now()
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  -- dobrado da 0006: imagem principal
+  is_primary      boolean NOT NULL DEFAULT false
 );
 
 CREATE TABLE openrate.product_variations (
@@ -547,6 +598,9 @@ CREATE TABLE openrate.video_types (
   active                   boolean NOT NULL DEFAULT true,
   created_at               timestamptz NOT NULL DEFAULT now(),
   updated_at               timestamptz NOT NULL DEFAULT now(),
+  -- dobrado da 0006: ícone e esqueleto de roteiro (editor de passos)
+  icon                     text,
+  script_skeleton          jsonb NOT NULL DEFAULT '[]',
   CONSTRAINT uq_video_types_org_slug UNIQUE NULLS NOT DISTINCT (organization_id, slug)
 );
 
@@ -595,7 +649,9 @@ CREATE TABLE openrate.videos (
   rejected_reason  text,
   metadata         jsonb NOT NULL DEFAULT '{}',
   created_at       timestamptz NOT NULL DEFAULT now(),
-  updated_at       timestamptz NOT NULL DEFAULT now()
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  -- dobrado da 0006: resultado do ffprobe (quality gate do worker)
+  quality_check    jsonb
 );
 
 CREATE TABLE openrate.video_publications (
@@ -668,6 +724,8 @@ CREATE TABLE openrate.commission_rules (
   created_by      uuid REFERENCES openrate.users(id),
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
+  -- dobrado da 0006: base do rateio (comissão de afiliado x valor bruto)
+  calc_base       openrate.commission_base NOT NULL DEFAULT 'affiliate_payout',
   CONSTRAINT ck_commission_rules_sum CHECK (creator_pct + store_pct + platform_pct <= 100),
   CONSTRAINT ck_commission_rules_store_org CHECK (store_id IS NULL OR organization_id IS NOT NULL),
   CONSTRAINT ck_commission_rules_window CHECK (valid_until IS NULL OR valid_until > valid_from)
@@ -719,6 +777,8 @@ CREATE TABLE openrate.payouts (
   failed_reason     text,
   created_at        timestamptz NOT NULL DEFAULT now(),
   updated_at        timestamptz NOT NULL DEFAULT now(),
+  -- dobrado da 0006: chave do recibo (PDF) no MinIO
+  receipt_key       text,
   CONSTRAINT uq_payouts_idempotency_key UNIQUE (idempotency_key),
   CONSTRAINT ck_payouts_period CHECK (period_end >= period_start)
 );
@@ -754,6 +814,9 @@ CREATE UNIQUE INDEX uq_entries_sale_beneficiary
 
 -- ===== 5.6 Engajamento ======================================================
 
+-- goals: metas genéricas (dobrado da 0007). Em vez dos antigos target_videos +
+-- target_sales_amount (REMOVIDOS), a meta escolhe UMA métrica (metric) e um
+-- valor alvo (target_value); a view v_goal_progress_daily mede a métrica.
 CREATE TABLE openrate.goals (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id     uuid NOT NULL REFERENCES openrate.organizations(id),
@@ -761,14 +824,15 @@ CREATE TABLE openrate.goals (
   user_id             uuid REFERENCES openrate.users(id),    -- NULL = vale para todos os attendants do escopo
   name                text NOT NULL,
   period              openrate.goal_period NOT NULL,
-  target_videos       integer NOT NULL CHECK (target_videos > 0),  -- vídeos ENVIADOS no período
-  target_sales_amount numeric(14,2) CHECK (target_sales_amount IS NULL OR target_sales_amount >= 0),
   active              boolean NOT NULL DEFAULT true,
   valid_from          date,
   valid_until         date,
   created_by          uuid REFERENCES openrate.users(id),
   created_at          timestamptz NOT NULL DEFAULT now(),
-  updated_at          timestamptz NOT NULL DEFAULT now()
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  -- dobrado da 0007: métrica escolhida + valor alvo
+  metric              openrate.goal_metric NOT NULL DEFAULT 'videos_recorded',
+  target_value        numeric(14,2) NOT NULL DEFAULT 0
 );
 
 CREATE TABLE openrate.achievements (
@@ -799,6 +863,9 @@ CREATE TABLE openrate.user_achievements (
 
 -- ===== 5.7 CRM físico =======================================================
 
+-- customers: CRM completo. A antiga coluna 'cpf' foi REMOVIDA (0006) — o
+-- documento (PF/PJ) agora vive em 'document'. Colunas de contato/endereço/
+-- LGPD dobradas da 0006 ao final.
 CREATE TABLE openrate.customers (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid NOT NULL REFERENCES openrate.organizations(id),
@@ -807,12 +874,19 @@ CREATE TABLE openrate.customers (
   name            text NOT NULL,
   phone           text,
   email           text,
-  cpf             text,
   birthdate       date,
   tags            text[] NOT NULL DEFAULT '{}',
   notes           text,
   created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now()
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  -- dobrado da 0006: contato, gênero, endereço, origem, consentimento LGPD e
+  -- documento (PF/PJ) que substitui o antigo 'cpf'
+  whatsapp        text,
+  gender          text,
+  address         jsonb NOT NULL DEFAULT '{}',
+  origin          text,
+  lgpd_consent    boolean NOT NULL DEFAULT false,
+  document        text
 );
 
 CREATE TABLE openrate.store_sales (
@@ -851,7 +925,7 @@ CREATE TABLE openrate.notifications (
 );
 
 -- Append-only: sem updated_at (única exceção à convenção, documentada) e sem
--- UPDATE/DELETE para openrate_app (revogados na seção 9). Particionamento por
+-- UPDATE/DELETE para openrate_app (revogados na seção 10). Particionamento por
 -- mês fica para migration futura, quando o volume justificar — o índice
 -- (organization_id, created_at) cobre as consultas até lá. Os triggers de
 -- auditoria por tabela também ficam para migration futura; no MVP quem grava
@@ -879,6 +953,8 @@ CREATE INDEX idx_stores_org               ON openrate.stores (organization_id);
 CREATE INDEX idx_users_org                ON openrate.users (organization_id);
 CREATE INDEX idx_users_org_role           ON openrate.users (organization_id, role);
 CREATE UNIQUE INDEX uq_users_email        ON openrate.users (lower(email)) WHERE deleted_at IS NULL;
+-- dobrado da 0004: segundo índice CI de e-mail (mesma definição, nome distinto)
+CREATE UNIQUE INDEX uq_users_email_ci     ON openrate.users (lower(email)) WHERE deleted_at IS NULL;
 CREATE INDEX idx_user_stores_store        ON openrate.user_stores (store_id);
 CREATE INDEX idx_user_stores_org          ON openrate.user_stores (organization_id);
 
@@ -1006,6 +1082,93 @@ CREATE INDEX idx_audit_log_entity          ON openrate.audit_log (entity_type, e
 CREATE INDEX idx_audit_log_user            ON openrate.audit_log (user_id);
 
 -- ----------------------------------------------------------------------------
+-- 6b. Auth própria da API (dobrado da 0004) — funções SECURITY DEFINER que
+--     rodam como o DONO (openrate_owner) para login/bootstrap SEM claim de
+--     tenant. A policy só-para-o-owner que as habilita fica na seção 9 (RLS).
+--     click_affiliate_link (dobrado da 0002) fica logo abaixo.
+-- ----------------------------------------------------------------------------
+
+-- Lookup de login: retorna o hash + o contexto do tenant p/ a API validar a senha
+-- (scrypt, no Node) e emitir o JWT. Só resolve por e-mail EXATO (case-insensitive).
+CREATE OR REPLACE FUNCTION openrate.auth_find_user(p_email text)
+RETURNS TABLE(
+  id uuid, email text, password_hash text,
+  organization_id uuid, store_id uuid, role openrate.user_role,
+  full_name text, active boolean
+)
+LANGUAGE sql SECURITY DEFINER SET search_path = openrate AS $$
+  SELECT u.id, u.email, u.password_hash, u.organization_id,
+         -- users não tem store_id; a loja do usuário vem de user_stores (junção).
+         (SELECT us.store_id FROM openrate.user_stores us WHERE us.user_id = u.id LIMIT 1) AS store_id,
+         u.role, u.full_name, u.active
+  FROM openrate.users u
+  WHERE lower(u.email) = lower(p_email) AND u.deleted_at IS NULL
+  LIMIT 1;
+$$;
+REVOKE ALL ON FUNCTION openrate.auth_find_user(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION openrate.auth_find_user(text) TO openrate_app;
+
+-- Revalidação em cada refresh de token: recarrega o usuário por id (sub do JWT)
+-- SEM claim de tenant, p/ a API re-checar active/role/org/store do BANCO (revoga
+-- conta desativada/rebaixada dentro do TTL do access, sem esperar o refresh vencer).
+CREATE OR REPLACE FUNCTION openrate.auth_find_user_by_id(p_id uuid)
+RETURNS TABLE(
+  id uuid, email text, password_hash text,
+  organization_id uuid, store_id uuid, role openrate.user_role,
+  full_name text, active boolean
+)
+LANGUAGE sql SECURITY DEFINER SET search_path = openrate AS $$
+  SELECT u.id, u.email, u.password_hash, u.organization_id,
+         (SELECT us.store_id FROM openrate.user_stores us WHERE us.user_id = u.id LIMIT 1) AS store_id,
+         u.role, u.full_name, u.active
+  FROM openrate.users u
+  WHERE u.id = p_id AND u.deleted_at IS NULL
+  LIMIT 1;
+$$;
+REVOKE ALL ON FUNCTION openrate.auth_find_user_by_id(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION openrate.auth_find_user_by_id(uuid) TO openrate_app;
+
+-- Bootstrap do PRIMEIRO super_admin (organization_id NULL). AUTO-DESABILITA: só cria
+-- se ainda não houver nenhum super_admin — seguro para expor num endpoint público de
+-- primeiro acesso (POST /v1/auth/bootstrap). Depois disso sempre falha (23505).
+CREATE OR REPLACE FUNCTION openrate.bootstrap_super_admin(
+  p_email text, p_full_name text, p_password_hash text
+)
+RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = openrate AS $$
+DECLARE new_id uuid;
+BEGIN
+  IF EXISTS (SELECT 1 FROM openrate.users WHERE role = 'super_admin') THEN
+    RAISE EXCEPTION 'super_admin ja existe' USING errcode = 'unique_violation';
+  END IF;
+  INSERT INTO openrate.users (organization_id, role, email, full_name, password_hash)
+  VALUES (NULL, 'super_admin', p_email, p_full_name, p_password_hash)
+  RETURNING id INTO new_id;
+  RETURN new_id;
+END;
+$$;
+REVOKE ALL ON FUNCTION openrate.bootstrap_super_admin(text, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION openrate.bootstrap_super_admin(text, text, text) TO openrate_app;
+
+-- Resolver do redirect PÚBLICO de link de afiliado (/r/:code) (dobrado da 0002).
+-- SECURITY DEFINER: roda como openrate_owner e, via a policy resolver_owner_all
+-- (seção 9), resolve o short_code EXATO cross-tenant mesmo com FORCE RLS ativo.
+CREATE OR REPLACE FUNCTION openrate.click_affiliate_link(p_code text)
+RETURNS text
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = openrate
+AS $$
+  UPDATE openrate.affiliate_links
+     SET clicks_count = clicks_count + 1
+   WHERE short_code = p_code AND active = true
+  RETURNING destination_url;
+$$;
+-- Só a role de runtime pode executar; ninguém mais.
+REVOKE ALL ON FUNCTION openrate.click_affiliate_link(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION openrate.click_affiliate_link(text) TO openrate_app;
+
+-- ----------------------------------------------------------------------------
 -- 7. Trigger de updated_at em TODAS as tabelas que têm a coluna
 --    (audit_log fica de fora automaticamente: é append-only, sem updated_at)
 -- ----------------------------------------------------------------------------
@@ -1032,9 +1195,11 @@ BEGIN
 END $$;
 
 -- ----------------------------------------------------------------------------
--- 8. View: progresso de meta diária por usuário
+-- 8. View: progresso de meta diária por usuário (versão FINAL da 0007).
 --    security_invoker: a view respeita o RLS das tabelas base para quem consulta.
---    Datas resolvidas em America/Sao_Paulo (mesmo TZ dos jobs de fechamento).
+--    Mede a MÉTRICA escolhida (metric) contra target_value; datas resolvidas em
+--    America/Sao_Paulo (mesmo TZ dos jobs de fechamento). current_value via
+--    subquery correlacionada por métrica (evita fan-out de JOINs).
 -- ----------------------------------------------------------------------------
 CREATE VIEW openrate.v_goal_progress_daily
 WITH (security_invoker = true) AS
@@ -1042,13 +1207,12 @@ WITH ref AS (
   SELECT (now() AT TIME ZONE 'America/Sao_Paulo')::date AS ref_date
 ),
 goal_users AS (
-  -- expande cada meta diária ativa para os usuários aos quais ela se aplica:
-  -- meta individual (user_id), meta de loja (store_id) ou meta da org inteira
   SELECT
     g.id              AS goal_id,
     g.organization_id,
     g.store_id,
-    g.target_videos,
+    g.metric,
+    g.target_value,
     u.id              AS user_id
   FROM openrate.goals g
   CROSS JOIN ref
@@ -1071,47 +1235,67 @@ goal_users AS (
     AND g.active
     AND (g.valid_from  IS NULL OR g.valid_from  <= ref.ref_date)
     AND (g.valid_until IS NULL OR g.valid_until >= ref.ref_date)
+),
+progress AS (
+  SELECT
+    gu.organization_id,
+    gu.goal_id,
+    gu.user_id,
+    r.ref_date,
+    gu.metric,
+    gu.target_value,
+    CASE gu.metric
+      WHEN 'videos_recorded' THEN (
+        SELECT count(*)::numeric FROM openrate.videos v
+        WHERE v.user_id = gu.user_id
+          AND (gu.store_id IS NULL OR v.store_id = gu.store_id)
+          AND v.uploaded_at IS NOT NULL
+          AND (v.uploaded_at AT TIME ZONE 'America/Sao_Paulo')::date = r.ref_date
+      )
+      WHEN 'videos_published' THEN (
+        SELECT count(*)::numeric
+        FROM openrate.video_publications p
+        JOIN openrate.videos v ON v.id = p.video_id
+        WHERE v.user_id = gu.user_id
+          AND (gu.store_id IS NULL OR v.store_id = gu.store_id)
+          AND p.published_at IS NOT NULL
+          AND (p.published_at AT TIME ZONE 'America/Sao_Paulo')::date = r.ref_date
+      )
+      WHEN 'views' THEN (
+        SELECT COALESCE(SUM(p.views_count), 0)::numeric
+        FROM openrate.video_publications p
+        JOIN openrate.videos v ON v.id = p.video_id
+        WHERE v.user_id = gu.user_id
+          AND (gu.store_id IS NULL OR v.store_id = gu.store_id)
+          AND p.published_at IS NOT NULL
+          AND (p.published_at AT TIME ZONE 'America/Sao_Paulo')::date = r.ref_date
+      )
+      WHEN 'affiliate_revenue' THEN (
+        SELECT COALESCE(SUM(s.commissionable_amount), 0)::numeric
+        FROM openrate.affiliate_sales s
+        WHERE s.user_id = gu.user_id
+          AND (gu.store_id IS NULL OR s.store_id = gu.store_id)
+          AND s.status = 'confirmed'
+          AND (s.occurred_at AT TIME ZONE 'America/Sao_Paulo')::date = r.ref_date
+      )
+    END AS current_value
+  FROM goal_users gu
+  CROSS JOIN ref r
 )
 SELECT
-  gu.organization_id,
-  gu.goal_id,
-  gu.user_id,
-  r.ref_date,
-  gu.target_videos,
-  COUNT(DISTINCT v.id) FILTER (
-    WHERE v.uploaded_at IS NOT NULL
-      AND (v.uploaded_at AT TIME ZONE 'America/Sao_Paulo')::date = r.ref_date
-  ) AS videos_submitted,
-  COUNT(DISTINCT v.id) FILTER (
-    WHERE v.approved_at IS NOT NULL
-      AND (v.approved_at AT TIME ZONE 'America/Sao_Paulo')::date = r.ref_date
-  ) AS videos_approved,
-  COUNT(DISTINCT v.id) FILTER (
-    WHERE v.uploaded_at IS NOT NULL
-      AND (v.uploaded_at AT TIME ZONE 'America/Sao_Paulo')::date = r.ref_date
-  ) >= gu.target_videos AS goal_met,
-  ROUND(
-    LEAST(
-      100.0 * COUNT(DISTINCT v.id) FILTER (
-        WHERE v.uploaded_at IS NOT NULL
-          AND (v.uploaded_at AT TIME ZONE 'America/Sao_Paulo')::date = r.ref_date
-      ) / NULLIF(gu.target_videos, 0),
-      100.0
-    ), 1
-  ) AS progress_pct
-FROM goal_users gu
-CROSS JOIN ref r
-LEFT JOIN openrate.videos v
-  ON v.user_id = gu.user_id
- AND (gu.store_id IS NULL OR v.store_id = gu.store_id)
- AND (
-      (v.uploaded_at IS NOT NULL AND (v.uploaded_at AT TIME ZONE 'America/Sao_Paulo')::date = r.ref_date)
-   OR (v.approved_at IS NOT NULL AND (v.approved_at AT TIME ZONE 'America/Sao_Paulo')::date = r.ref_date)
- )
-GROUP BY gu.organization_id, gu.goal_id, gu.user_id, r.ref_date, gu.target_videos;
+  organization_id,
+  goal_id,
+  user_id,
+  ref_date,
+  metric,
+  target_value,
+  current_value,
+  (current_value >= target_value) AS goal_met,
+  ROUND(LEAST(100.0 * current_value / NULLIF(target_value, 0), 100.0), 1) AS progress_pct
+FROM progress;
 
 COMMENT ON VIEW openrate.v_goal_progress_daily IS
-  'Progresso da meta diária por usuário: vídeos enviados/aprovados hoje vs target_videos. security_invoker: herda o RLS das tabelas base.';
+  'Progresso da meta diária por usuário conforme a métrica (videos_recorded/videos_published/views/affiliate_revenue) vs target_value. security_invoker: herda o RLS das tabelas base.';
 
 -- ----------------------------------------------------------------------------
 -- 9. RLS — habilitado (e FORÇADO) em toda tabela tenant
@@ -1192,6 +1376,22 @@ CREATE POLICY platform_read ON openrate.commission_rules
 CREATE POLICY self_read ON openrate.users
   FOR SELECT USING (id = openrate.current_user_id());
 
+-- Policy só-para-o-owner em users (dobrado da 0004): habilita as funções
+-- SECURITY DEFINER de auth (auth_find_user/bootstrap_super_admin), que rodam
+-- como openrate_owner e precisam ler/gravar usuários cross-tenant no login/
+-- bootstrap (sem claim). openrate_app continua restrita às policies de tenant.
+CREATE POLICY auth_owner_all ON openrate.users
+  FOR ALL TO openrate_owner
+  USING (true) WITH CHECK (true);
+
+-- Policy só-para-o-owner em affiliate_links (dobrado da 0002): habilita a função
+-- SECURITY DEFINER click_affiliate_link a resolver o link no redirect público
+-- cross-tenant, mantendo FORCE RLS ativo. openrate_app permanece restrita à sua
+-- policy tenant_isolation (esta policy do owner NÃO se aplica a ela).
+CREATE POLICY resolver_owner_all ON openrate.affiliate_links
+  FOR ALL TO openrate_owner
+  USING (true) WITH CHECK (true);
+
 -- ----------------------------------------------------------------------------
 -- 10. GRANTs para a role de aplicação (openrate_app)
 --     A role NÃO é dona de nada; RLS se aplica integralmente a ela.
@@ -1215,7 +1415,35 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA openrate
   GRANT EXECUTE ON FUNCTIONS TO openrate_app;
 
 -- ----------------------------------------------------------------------------
--- 11. Asserção de cobertura de RLS (invariante verificada, não convenção)
+-- 11. Seed dos tipos de vídeo GLOBAIS (organization_id NULL) (dobrado da 0003)
+--     Lidos por qualquer org (policy platform_read) pelo job ai-script-generation.
+--     Inserir linhas org-null é bloqueado pelo FORCE RLS (tenant_isolation exige
+--     organization_id = claim, e sem claim current_org_id() é NULL). Como o dono
+--     não é superuser, suspendemos o FORCE só durante o seed e o restauramos em
+--     seguida — a tabela nunca fica sem FORCE em repouso (invariante checada na
+--     seção 12).
+-- ----------------------------------------------------------------------------
+ALTER TABLE openrate.video_types NO FORCE ROW LEVEL SECURITY;
+
+INSERT INTO openrate.video_types (organization_id, name, slug, description, prompt_template, default_duration_seconds)
+VALUES
+  (NULL, 'Unboxing', 'unboxing', 'Abertura do produto com reações e destaques.',
+   'Mostre a embalagem, abra na frente da câmera, destaque 3 diferenciais e feche com CTA.', 45),
+  (NULL, 'Review', 'review', 'Avaliação honesta com prós e um contra.',
+   'Apresente o produto, liste 3 prós e 1 ponto de atenção, dê uma nota e CTA.', 60),
+  (NULL, 'Antes e Depois', 'antes-depois', 'Transformação/resultado do uso do produto.',
+   'Mostre o antes, aplique/use o produto, revele o depois e CTA.', 30),
+  (NULL, 'Demonstração', 'demonstracao', 'Produto em uso real, passo a passo.',
+   'Explique para que serve, demonstre o uso em 3 passos e CTA.', 45),
+  (NULL, 'Tutorial', 'tutorial', 'Ensina a usar/aplicar o produto.',
+   'Liste o que é preciso, ensine em passos numerados e feche com dica extra + CTA.', 60)
+ON CONFLICT (organization_id, slug) DO NOTHING;
+
+-- …e restaura o FORCE imediatamente (a tabela nunca fica sem FORCE em repouso).
+ALTER TABLE openrate.video_types FORCE ROW LEVEL SECURITY;
+
+-- ----------------------------------------------------------------------------
+-- 12. Asserção de cobertura de RLS (invariante verificada, não convenção)
 --     Falha a migration se QUALQUER tabela base do schema openrate ficar sem
 --     ENABLE + FORCE ROW LEVEL SECURITY ou sem ao menos uma policy. Transforma
 --     "toda tabela tenant tem RLS" de convenção implícita em garantia checada —
@@ -1248,13 +1476,78 @@ BEGIN
 END $$;
 
 -- ============================================================================
--- Fim da migration 0001_init
+-- Fim da migration 0001_init (consolidada)
 -- ============================================================================
 
 -- migrate:down
--- Reverte a migration inicial removendo o schema inteiro. Só destrói objetos do
--- schema "openrate" — não toca em auth/storage/public nem em outros produtos.
--- As roles openrate_owner/openrate_app são criadas fora da migration (runbook),
--- então NÃO são removidas aqui. Este bloco NÃO deve ser executado via psql -f
+-- Teardown seguro: derruba SOMENTE os objetos criados por esta migration, em
+-- ordem reversa de dependência. NÃO usa DROP SCHEMA (o schema "openrate" é
+-- criado FORA da migration, pelo deploy) nem remove as roles openrate_owner/
+-- openrate_app (também externas). Este bloco NÃO deve ser executado via psql -f
 -- do arquivo inteiro (ver cabeçalho): é para o `dbmate down`.
-DROP SCHEMA IF EXISTS openrate CASCADE;
+SET search_path TO openrate, public;
+
+-- View
+DROP VIEW IF EXISTS openrate.v_goal_progress_daily;
+
+-- Tabelas (CASCADE remove policies, triggers, índices e FKs dependentes)
+DROP TABLE IF EXISTS openrate.audit_log            CASCADE;
+DROP TABLE IF EXISTS openrate.notifications        CASCADE;
+DROP TABLE IF EXISTS openrate.store_sales          CASCADE;
+DROP TABLE IF EXISTS openrate.customers            CASCADE;
+DROP TABLE IF EXISTS openrate.user_achievements    CASCADE;
+DROP TABLE IF EXISTS openrate.achievements         CASCADE;
+DROP TABLE IF EXISTS openrate.goals                CASCADE;
+DROP TABLE IF EXISTS openrate.commission_entries   CASCADE;
+DROP TABLE IF EXISTS openrate.payouts              CASCADE;
+DROP TABLE IF EXISTS openrate.affiliate_sales      CASCADE;
+DROP TABLE IF EXISTS openrate.commission_rules     CASCADE;
+DROP TABLE IF EXISTS openrate.affiliate_links      CASCADE;
+DROP TABLE IF EXISTS openrate.video_publications   CASCADE;
+DROP TABLE IF EXISTS openrate.videos               CASCADE;
+DROP TABLE IF EXISTS openrate.video_ideas          CASCADE;
+DROP TABLE IF EXISTS openrate.video_types          CASCADE;
+DROP TABLE IF EXISTS openrate.store_inventory      CASCADE;
+DROP TABLE IF EXISTS openrate.product_variations   CASCADE;
+DROP TABLE IF EXISTS openrate.product_images       CASCADE;
+DROP TABLE IF EXISTS openrate.products             CASCADE;
+DROP TABLE IF EXISTS openrate.categories           CASCADE;
+DROP TABLE IF EXISTS openrate.brands               CASCADE;
+DROP TABLE IF EXISTS openrate.integrations         CASCADE;
+DROP TABLE IF EXISTS openrate.user_stores          CASCADE;
+DROP TABLE IF EXISTS openrate.users                CASCADE;
+DROP TABLE IF EXISTS openrate.stores               CASCADE;
+DROP TABLE IF EXISTS openrate.organizations        CASCADE;
+
+-- Funções
+DROP FUNCTION IF EXISTS openrate.click_affiliate_link(text);
+DROP FUNCTION IF EXISTS openrate.bootstrap_super_admin(text, text, text);
+DROP FUNCTION IF EXISTS openrate.auth_find_user_by_id(uuid);
+DROP FUNCTION IF EXISTS openrate.auth_find_user(text);
+DROP FUNCTION IF EXISTS openrate.set_updated_at();
+DROP FUNCTION IF EXISTS openrate.is_super_admin();
+DROP FUNCTION IF EXISTS openrate.current_user_role();
+DROP FUNCTION IF EXISTS openrate.current_user_id();
+DROP FUNCTION IF EXISTS openrate.current_org_id();
+DROP FUNCTION IF EXISTS openrate.jwt_claims();
+
+-- Tipos ENUM
+DROP TYPE IF EXISTS openrate.goal_metric;
+DROP TYPE IF EXISTS openrate.commission_base;
+DROP TYPE IF EXISTS openrate.product_unit;
+DROP TYPE IF EXISTS openrate.product_type;
+DROP TYPE IF EXISTS openrate.org_status;
+DROP TYPE IF EXISTS openrate.org_plan;
+DROP TYPE IF EXISTS openrate.commission_beneficiary;
+DROP TYPE IF EXISTS openrate.notification_channel;
+DROP TYPE IF EXISTS openrate.integration_provider;
+DROP TYPE IF EXISTS openrate.goal_period;
+DROP TYPE IF EXISTS openrate.payout_status;
+DROP TYPE IF EXISTS openrate.commission_entry_status;
+DROP TYPE IF EXISTS openrate.sale_status;
+DROP TYPE IF EXISTS openrate.publication_status;
+DROP TYPE IF EXISTS openrate.publication_platform;
+DROP TYPE IF EXISTS openrate.video_status;
+DROP TYPE IF EXISTS openrate.product_origin;
+DROP TYPE IF EXISTS openrate.product_scope;
+DROP TYPE IF EXISTS openrate.user_role;

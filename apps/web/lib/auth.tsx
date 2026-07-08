@@ -1,10 +1,17 @@
 'use client';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { UserRole } from '@openrate/shared';
-import { api, setTokens, clearTokens, getToken } from './api';
+import { api, setTokens, clearTokens, getToken, switchOrg as apiSwitchOrg } from './api';
 
 interface Me {
-  user: { id: string; email?: string; full_name?: string; role: UserRole };
+  user: {
+    id: string;
+    email?: string;
+    full_name?: string;
+    role: UserRole;
+    must_change_password?: boolean;
+    image_release_status?: string;
+  };
   org: { id: string; name: string } | null;
   store: { id: string; name: string } | null;
   role: UserRole;
@@ -15,6 +22,8 @@ interface AuthState {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  switchOrg: (orgId: string) => Promise<void>;
+  reload: () => Promise<void>;
 }
 
 const AuthCtx = createContext<AuthState | null>(null);
@@ -56,7 +65,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMe(null);
   }
 
-  return <AuthCtx.Provider value={{ me, loading, login, logout }}>{children}</AuthCtx.Provider>;
+  async function switchOrg(orgId: string) {
+    await apiSwitchOrg(orgId);
+    await loadMe();
+  }
+
+  return (
+    <AuthCtx.Provider value={{ me, loading, login, logout, switchOrg, reload: loadMe }}>
+      {children}
+    </AuthCtx.Provider>
+  );
 }
 
 export function useAuth(): AuthState {

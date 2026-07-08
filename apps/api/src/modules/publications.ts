@@ -1,5 +1,6 @@
 import {
   Body,
+  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -39,7 +40,8 @@ class PublicationsController {
     @Param('id') videoId: string,
     @Body(new ZodValidationPipe(createPublicationSchema)) dto: CreatePublicationInput,
   ) {
-    return this.pg.withTenant(t, async (c) => {
+    try {
+      return await this.pg.withTenant(t, async (c) => {
       const v = await c.query(
         'SELECT id, user_id, store_id, product_id, status FROM openrate.videos WHERE id = $1',
         [videoId],
@@ -87,7 +89,14 @@ class PublicationsController {
           redirectUrl: `${env.apiPublicUrl}/r/${code}`,
         },
       };
-    });
+      });
+    } catch (e) {
+      // Republicar o mesmo vídeo na mesma plataforma viola o índice único → 409.
+      if ((e as { code?: string })?.code === '23505') {
+        throw new ConflictException('este vídeo já foi publicado nesta plataforma');
+      }
+      throw e;
+    }
   }
 
   @Get('publications')
@@ -95,13 +104,23 @@ class PublicationsController {
     return this.pg.withTenant(t, (c) =>
       c
         .query(
-          `SELECT p.id, p.video_id, p.platform, p.status, p.external_url, p.published_at,
-                  l.short_code, l.clicks_count
+          `SELECT p.id, p.video_id, p.platform, p.status, p.external_url, p.caption, p.published_at,
+                  l.short_code, l.clicks_count, l.destination_url,
+                  pr.name AS product_name, u.full_name AS creator_name
              FROM openrate.video_publications p
              LEFT JOIN openrate.affiliate_links l ON l.video_publication_id = p.id
-            ORDER BY p.created_at DESC LIMIT 200`,
+             LEFT JOIN openrate.videos v ON v.id = p.video_id
+             LEFT JOIN openrate.products pr ON pr.id = v.product_id
+             LEFT JOIN openrate.users u ON u.id = v.user_id
+            ORDER BY p.created_at DESC LIMIT 500`,
         )
-        .then((r) => r.rows),
+        .then((r) =>
+          r.rows.map((row) => ({
+            ...row,
+            // Link público do redirecionador (fora de /v1). Facilita copiar/colar no painel.
+            redirect_url: row.short_code ? `${env.apiPublicUrl}/r/${row.short_code}` : null,
+          })),
+        ),
     );
   }
 }

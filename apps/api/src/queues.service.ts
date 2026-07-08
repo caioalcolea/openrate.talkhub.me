@@ -8,6 +8,9 @@ import {
   type VideoProcessingJob,
   type NotificationJob,
   type CommissionSettlementJob,
+  type MetricsSyncJob,
+  type PayoutPixJob,
+  type OlistSyncJob,
 } from '@openrate/shared';
 import { redisConnection } from './common/env';
 
@@ -66,6 +69,41 @@ export class QueuesService implements OnModuleDestroy {
       attempts: opts.attempts,
       backoff: opts.backoffMs ? { type: 'exponential', delay: opts.backoffMs } : undefined,
       removeOnComplete: { count: 500 },
+      removeOnFail: false,
+    });
+  }
+
+  // --- Seams da fase Escala (processadores stub no worker até a fase ser puxada) ---
+
+  async enqueueMetricsSync(job: MetricsSyncJob, isoWindow: string): Promise<void> {
+    const opts = QUEUE_JOB_OPTIONS[QUEUES.metricsSync];
+    await this.get(QUEUES.metricsSync).add('sync', job, {
+      jobId: jobIds.metricsSync(job.publicationId, isoWindow),
+      attempts: opts.attempts,
+      backoff: opts.backoffMs ? { type: 'exponential', delay: opts.backoffMs } : undefined,
+      removeOnComplete: { count: 500 },
+      removeOnFail: false,
+    });
+  }
+
+  // payout-pix: SEM retry (financeiro) — reprocesso manual via Bull Board.
+  async enqueuePayoutPix(job: PayoutPixJob): Promise<void> {
+    const opts = QUEUE_JOB_OPTIONS[QUEUES.payoutPix];
+    await this.get(QUEUES.payoutPix).add('pay', job, {
+      jobId: jobIds.payoutPix(job.payoutId),
+      attempts: opts.attempts,
+      removeOnComplete: { count: 500 },
+      removeOnFail: false,
+    });
+  }
+
+  async enqueueOlistSync(job: OlistSyncJob, isoWindow: string): Promise<void> {
+    const opts = QUEUE_JOB_OPTIONS[QUEUES.olistSync];
+    await this.get(QUEUES.olistSync).add('sync', job, {
+      jobId: jobIds.olistSync(job.orgId, job.kind, isoWindow),
+      attempts: opts.attempts,
+      backoff: opts.backoffMs ? { type: 'exponential', delay: opts.backoffMs } : undefined,
+      removeOnComplete: { count: 200 },
       removeOnFail: false,
     });
   }

@@ -9,8 +9,8 @@
 #   1. Pré-checagens (docker, swarm manager, .env)
 #   2. DNS dos 3 hosts (aviso)
 #   3. Volume openrate_redis_data
-#   4. Postgres do Supabase: roles openrate_owner/openrate_app + schema +
-#      migrations 0001 (como owner) / 0002 / 0003 (como postgres)
+#   4. Postgres compartilhado (container supabase_db): roles openrate_owner/openrate_app
+#      + schema + migration única consolidada 0001_init.sql (como owner)
 #   5. MinIO: bucket openrate-media + lifecycle (raw/ 30d) + usuário + policy
 #   6. Build das 4 imagens talkhub/openrate-*
 #   7. docker stack deploy openrate
@@ -43,12 +43,9 @@ set -a; . "$ENV_FILE"; set +a
 : "${OPENRATE_REDIS_PASSWORD:?defina em .env}"
 : "${S3_ACCESS_KEY:?}"; : "${S3_SECRET_KEY:?}"
 : "${MINIO_ROOT_USER:?defina em .env}"; : "${MINIO_ROOT_PASSWORD:?defina em .env}"
-: "${SUPABASE_JWT_SECRET:?}"; : "${BULLBOARD_BASICAUTH:?}"
-# Sem estes a stack sobe 5/5 e o /health passa, mas login/convite/provisionamento
-# de usuário ficam MORTOS (auth via gotrue). Exige antes de subir.
-: "${SUPABASE_URL:?defina em .env}"
-: "${SUPABASE_ANON_KEY:?defina em .env}"
-: "${SUPABASE_SERVICE_ROLE_KEY:?defina em .env}"
+: "${JWT_SECRET:?}"; : "${BULLBOARD_BASICAUTH:?}"
+# JWT_SECRET (acima) é essencial: a API assina e valida o próprio JWT com ele
+# (auth própria da API).
 # As senhas de DB/Redis entram CRUAS em DATABASE_URL/REDIS_URL (URI) no openrate.yaml.
 # Um char reservado de URI (@ : / ? # % espaço…) reparseia host/porta e quebra a conexão
 # de TODOS os apps silenciosamente — a role é criada, o script passa verde, mas os
@@ -61,9 +58,9 @@ done
 docker network inspect talkhub >/dev/null 2>&1 || die "rede overlay 'talkhub' não existe."
 
 find_ctr(){ docker ps -q -f "name=^$1\\." | head -1; }
-# Conecta como superuser postgres: -u postgres cobre peer/trust via socket;
-# PGPASSWORD cobre md5/scram. Um dos dois funciona em qualquer config do supabase_db.
-psql_su(){ docker exec -u postgres -e PGPASSWORD="${SUPABASE_DB_POSTGRES_PASSWORD:-}" -i "$DBCTR" psql -U postgres -d postgres "$@"; }
+# Conecta como o postgres do container do banco: -u postgres cobre peer/trust via
+# socket; PGPASSWORD cobre md5/scram. Um dos dois funciona em qualquer config do DB.
+psql_su(){ docker exec -u postgres -e PGPASSWORD="${DB_SUPERUSER_PASSWORD:-}" -i "$DBCTR" psql -U postgres -d postgres "$@"; }
 
 # ---------------------------------------------------------------- 2. DNS
 log "2/8 DNS dos hosts"
@@ -137,11 +134,11 @@ ALTER ROLE openrate_app   SET search_path = openrate, extensions;
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname='extensions') THEN
     BEGIN
-      -- não-fatal: se "postgres" não for dono do schema extensions o Supabase
+      -- não-fatal: se "postgres" não for dono do schema extensions o servidor
       -- em geral já concede USAGE às roles; não abortamos o deploy por isso.
       EXECUTE 'GRANT USAGE ON SCHEMA extensions TO openrate_owner, openrate_app';
     EXCEPTION WHEN insufficient_privilege THEN
-      RAISE NOTICE 'sem privilegio p/ GRANT USAGE em extensions; seguindo (Supabase costuma conceder por padrao).';
+      RAISE NOTICE 'sem privilegio p/ GRANT USAGE em extensions; seguindo (o servidor costuma conceder por padrao).';
     END;
   END IF;
 END $$;
@@ -152,18 +149,17 @@ SQL
 _ownerr="$(psql_owner -tAc "SELECT 1" 2>&1 1>/dev/null)" \
   || die "não consegui conectar como openrate_owner via TCP+senha. Erro: ${_ownerr:-desconhecido}. Confira OPENRATE_DB_OWNER_PASSWORD e o pg_hba do supabase_db."
 
-# 0001/0002/0003 aplicadas COMO openrate_owner (conexão direta; sem SET ROLE).
-# 0002 usa policy só-para-o-owner na affiliate_links (a função SECURITY DEFINER roda
-# como o owner); 0003 suspende o FORCE só durante o seed org-null e o restaura.
+# Migration ÚNICA consolidada (0001_init) aplicada COMO openrate_owner (conexão
+# direta; sem SET ROLE). Ela já inclui: resolver de link de afiliado (policy
+# só-do-owner + função SECURITY DEFINER), auth própria, seed de video_types
+# (suspende o FORCE só durante o seed org-null e restaura) e toda a estrutura.
+# Idempotente: se o schema já foi migrado, pula (nada destrutivo).
 if [ -z "$(psql_owner -tAc "SELECT to_regclass('openrate.organizations')")" ]; then
-  log "  aplicando 0001_init.sql (como openrate_owner)"
+  log "  aplicando 0001_init.sql (consolidada, como openrate_owner)"
   sed '/^-- migrate:down/,$d' db/migrations/0001_init.sql | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
 else
-  log "  schema openrate já migrado (0001) — pulando"
+  log "  schema openrate já migrado — pulando"
 fi
-log "  aplicando 0002 (resolver de link) e 0003 (seed video_types) como openrate_owner"
-sed '/^-- migrate:down/,$d' db/migrations/0002_affiliate_link_resolver.sql | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
-sed '/^-- migrate:down/,$d' db/migrations/0003_seed_video_types.sql        | psql_owner -v ON_ERROR_STOP=1 --single-transaction -f - >/dev/null
 
 # contagens COMO owner. video_types roda sob FORCE RLS até p/ o dono; usamos um claim
 # super_admin TRANSACTION-LOCAL (is_local=true — mesmo padrão seguro do app, que não
@@ -209,17 +205,23 @@ JSON
 # ---------------------------------------------------------------- 6. build
 log "6/8 Build das imagens (contexto = raiz do monorepo)"
 SHA="$(git rev-parse --short HEAD 2>/dev/null || echo latest)"
-docker build -t talkhub/openrate-api:latest       -t "talkhub/openrate-api:$SHA"       -f apps/api/Dockerfile .
-docker build -t talkhub/openrate-worker:latest    -t "talkhub/openrate-worker:$SHA"    -f apps/worker/Dockerfile .
-docker build -t talkhub/openrate-web:latest       -t "talkhub/openrate-web:$SHA"       -f apps/web/Dockerfile \
+# NO_CACHE=1 (usado pelo redeploy.sh) força rebuild sem cache das imagens do OpenRate.
+NOCACHE=""; [ "${NO_CACHE:-}" = "1" ] && { NOCACHE="--no-cache"; log "  (rebuild SEM cache)"; }
+docker build $NOCACHE -t talkhub/openrate-api:latest       -t "talkhub/openrate-api:$SHA"       -f apps/api/Dockerfile .
+docker build $NOCACHE -t talkhub/openrate-worker:latest    -t "talkhub/openrate-worker:$SHA"    -f apps/worker/Dockerfile .
+docker build $NOCACHE -t talkhub/openrate-web:latest       -t "talkhub/openrate-web:$SHA"       -f apps/web/Dockerfile \
   --build-arg NEXT_PUBLIC_API_URL="https://openrate-api.$DOMAIN" .
-docker build -t talkhub/openrate-bullboard:latest -t "talkhub/openrate-bullboard:$SHA" -f apps/bullboard/Dockerfile .
+docker build $NOCACHE -t talkhub/openrate-bullboard:latest -t "talkhub/openrate-bullboard:$SHA" -f apps/bullboard/Dockerfile .
 log "  imagens buildadas (tags latest + $SHA)"
 
 # ---------------------------------------------------------------- 7. deploy
 log "7/8 Deploy da stack $STACK"
+# Referencia as imagens pela TAG do SHA (não :latest). Com :latest o Swarm não
+# detecta que a imagem local mudou (sem registry p/ comparar digest) e mantém a
+# imagem ANTIGA rodando. A tag única do SHA força o roll para a imagem recém-buildada.
+export OPENRATE_IMAGE_TAG="$SHA"
 docker stack deploy --detach=true -c deploy/openrate.yaml "$STACK"
-log "  stack $STACK enviada"
+log "  stack $STACK enviada (imagens :$SHA)"
 
 # ---------------------------------------------------------------- 8. smoke
 log "8/8 Aguardando serviços ficarem 1/1..."

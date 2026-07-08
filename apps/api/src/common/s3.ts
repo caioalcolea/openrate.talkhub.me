@@ -5,6 +5,7 @@ import {
   CompleteMultipartUploadCommand,
   UploadPartCommand,
   GetObjectCommand,
+  PutObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from './env';
@@ -69,12 +70,36 @@ export class S3Service {
     );
   }
 
-  // Presigned GET (leitura) de curta duração para o player/painel.
-  async presignGet(key: string, expiresIn = 900): Promise<string> {
+  // Presigned PUT (upload único) — para imagens leves (logo de marca, imagem de
+  // produto). O browser faz PUT direto no host público; a mídia não passa pela API.
+  async presignPut(key: string, contentType: string, expiresIn = 3600): Promise<string> {
     return getSignedUrl(
       this.publicClient,
-      new GetObjectCommand({ Bucket: env.s3Bucket, Key: key }),
+      new PutObjectCommand({ Bucket: env.s3Bucket, Key: key, ContentType: contentType }),
       { expiresIn },
+    );
+  }
+
+  // Presigned GET (leitura) de curta duração para o player/painel. Quando
+  // downloadName é informado, força o browser a baixar (Content-Disposition).
+  async presignGet(key: string, expiresIn = 900, downloadName?: string): Promise<string> {
+    return getSignedUrl(
+      this.publicClient,
+      new GetObjectCommand({
+        Bucket: env.s3Bucket,
+        Key: key,
+        ...(downloadName
+          ? { ResponseContentDisposition: `attachment; filename="${downloadName.replace(/"/g, '')}"` }
+          : {}),
+      }),
+      { expiresIn },
+    );
+  }
+
+  // Upload server-side (a mídia é gerada na API, ex.: recibo PDF de payout).
+  async putObject(key: string, body: Buffer, contentType: string): Promise<void> {
+    await this.internal.send(
+      new PutObjectCommand({ Bucket: env.s3Bucket, Key: key, Body: body, ContentType: contentType }),
     );
   }
 }

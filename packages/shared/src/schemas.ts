@@ -2,9 +2,16 @@ import { z } from 'zod';
 import {
   PRODUCT_SCOPES,
   PRODUCT_ORIGINS,
+  PRODUCT_TYPES,
+  PRODUCT_UNITS,
   USER_ROLES,
   PUBLICATION_PLATFORMS,
   GOAL_PERIODS,
+  GOAL_METRICS,
+  ORG_PLANS,
+  ORG_STATUSES,
+  COMMISSION_BASES,
+  PIX_KEY_TYPES,
 } from './enums';
 
 // ---------------------------------------------------------------------------
@@ -41,46 +48,260 @@ export type VideoIdeasBatch = z.infer<typeof videoIdeasBatchSchema>;
 const uuid = z.string().uuid();
 const money = z.number().nonnegative().multipleOf(0.01);
 const pct = z.number().min(0).max(100);
+const slug = z
+  .string()
+  .min(2)
+  .max(80)
+  .regex(/^[a-z0-9-]+$/, 'use kebab-case: minúsculas, números e hífens');
 
+// Endereço estruturado (reusado por lojas e clientes; guardado em coluna jsonb).
+export const addressSchema = z.object({
+  cep: z.string().max(9).optional(),
+  street: z.string().max(200).optional(),
+  number: z.string().max(20).optional(),
+  complement: z.string().max(120).optional(),
+  district: z.string().max(120).optional(),
+  city: z.string().max(120).optional(),
+  state: z.string().length(2).optional(),
+});
+export type Address = z.infer<typeof addressSchema>;
+
+const pixKeyType = z.enum(PIX_KEY_TYPES);
+
+// --- Organização ---
 export const createOrganizationSchema = z.object({
   name: z.string().min(2).max(160),
-  slug: z
-    .string()
-    .min(2)
-    .max(80)
-    .regex(/^[a-z0-9-]+$/),
+  tradeName: z.string().max(160).optional(),
+  slug,
   document: z.string().max(20).optional(),
+  plan: z.enum(ORG_PLANS).optional(), // default 'free' aplicado no banco/endpoint
 });
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 
+export const updateOrganizationSchema = z.object({
+  name: z.string().min(2).max(160).optional(),
+  tradeName: z.string().max(160).nullable().optional(),
+  document: z.string().max(20).nullable().optional(),
+  plan: z.enum(ORG_PLANS).optional(),
+  status: z.enum(ORG_STATUSES).optional(),
+  active: z.boolean().optional(),
+});
+export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
+
+// --- Loja ---
 export const createStoreSchema = z.object({
   name: z.string().min(2).max(160),
   document: z.string().max(20).optional(),
-  city: z.string().max(120).optional(),
+  phone: z.string().max(20).optional(),
+  whatsapp: z.string().max(20).optional(),
+  address: addressSchema.optional(),
+  timezone: z.string().max(60).optional(),
 });
 export type CreateStoreInput = z.infer<typeof createStoreSchema>;
 
+export const updateStoreSchema = z.object({
+  name: z.string().min(2).max(160).optional(),
+  document: z.string().max(20).nullable().optional(),
+  phone: z.string().max(20).nullable().optional(),
+  whatsapp: z.string().max(20).nullable().optional(),
+  address: addressSchema.optional(),
+  timezone: z.string().max(60).optional(),
+  active: z.boolean().optional(),
+});
+export type UpdateStoreInput = z.infer<typeof updateStoreSchema>;
+
+// --- Usuário / convite / senha ---
 export const inviteUserSchema = z.object({
   email: z.string().email(),
   fullName: z.string().min(2).max(160),
   role: z.enum(USER_ROLES),
-  storeId: uuid.nullable().optional(),
   phone: z.string().max(20).optional(), // E.164 p/ WhatsApp
+  storeId: uuid.nullable().optional(), // legado (loja única) — T7 migra p/ storeIds
+  storeIds: z.array(uuid).max(200).optional(), // lojas vinculadas (user_stores)
+  defaultStoreId: uuid.nullable().optional(), // loja principal (is_default)
+  pixKey: z.string().max(140).optional(),
+  pixKeyType: pixKeyType.optional(),
 });
 export type InviteUserInput = z.infer<typeof inviteUserSchema>;
 
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1).optional(), // opcional no fluxo "troca obrigatória"
+  newPassword: z.string().min(8).max(200),
+});
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
+export const updateUserSchema = z.object({
+  fullName: z.string().min(2).max(160).optional(),
+  phone: z.string().max(20).nullable().optional(),
+  role: z.enum(USER_ROLES).optional(),
+  active: z.boolean().optional(),
+  storeIds: z.array(uuid).max(200).optional(), // substitui os vínculos em user_stores
+  defaultStoreId: uuid.nullable().optional(),
+});
+export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+
+// --- Produto: links de marketplaces/canais externos ---
+// Guardados em products.attributes.marketplaceLinks (jsonb) — sem coluna/migration
+// nova (a coluna attributes já existe). O form monta os campos a partir de MARKETPLACES.
+export const MARKETPLACES = [
+  'mercadoLivre',
+  'amazon',
+  'tiktok',
+  'shopee',
+  'kwai',
+  'temu',
+  'magalu',
+  'brandSite',
+] as const;
+export type Marketplace = (typeof MARKETPLACES)[number];
+
+export const MARKETPLACE_LABELS: Record<Marketplace, string> = {
+  mercadoLivre: 'Mercado Livre',
+  amazon: 'Amazon',
+  tiktok: 'TikTok',
+  shopee: 'Shopee',
+  kwai: 'Kwai',
+  temu: 'Temu',
+  magalu: 'Magalu',
+  brandSite: 'Site da Marca',
+};
+
+// Cada link é http(s) e opcional; string vazia é normalizada para ausência (undefined).
+const marketplaceUrl = z
+  .string()
+  .trim()
+  .max(1000)
+  .refine((u) => u === '' || /^https?:\/\/\S+$/i.test(u), 'use uma URL http(s) válida')
+  .transform((u) => (u === '' ? undefined : u))
+  .optional();
+
+export const marketplaceLinksSchema = z.object({
+  mercadoLivre: marketplaceUrl,
+  amazon: marketplaceUrl,
+  tiktok: marketplaceUrl,
+  shopee: marketplaceUrl,
+  kwai: marketplaceUrl,
+  temu: marketplaceUrl,
+  magalu: marketplaceUrl,
+  brandSite: marketplaceUrl,
+});
+export type MarketplaceLinks = z.infer<typeof marketplaceLinksSchema>;
+
+// --- Produto (formulário em abas) ---
 export const createProductSchema = z.object({
   name: z.string().min(2).max(240),
-  description: z.string().max(4000).optional(),
+  model: z.string().max(160).optional(),
+  productType: z.enum(PRODUCT_TYPES).optional(), // default 'simple' no banco/endpoint
   scope: z.enum(PRODUCT_SCOPES).default('store'),
   origin: z.enum(PRODUCT_ORIGINS).default('manual'),
   storeId: uuid.nullable().optional(),
   categoryId: uuid.nullable().optional(),
   brandId: uuid.nullable().optional(),
-  price: money.optional(),
   sku: z.string().max(80).optional(),
+  gtin: z.string().max(20).optional(),
+  unit: z.enum(PRODUCT_UNITS).optional(),
+  // fiscal
+  ncm: z.string().max(20).optional(),
+  cest: z.string().max(20).optional(),
+  fiscalOrigin: z.string().max(2).optional(),
+  // preços
+  price: money.optional(),
+  promoPrice: money.optional(),
+  costPrice: money.optional(),
+  // descrição / seo
+  shortDescription: z.string().max(500).optional(),
+  description: z.string().max(20000).optional(), // HTML (rich text)
+  tags: z.array(z.string().max(60)).max(50).optional(),
+  seoTitle: z.string().max(160).optional(),
+  seoDescription: z.string().max(320).optional(),
+  institutionalVideoUrl: z.string().max(500).optional(),
+  // links nos marketplaces/canais (attributes.marketplaceLinks)
+  marketplaceLinks: marketplaceLinksSchema.optional(),
+  // logística
+  weightGrossKg: z.number().nonnegative().optional(),
+  weightNetKg: z.number().nonnegative().optional(),
+  heightCm: z.number().nonnegative().optional(),
+  widthCm: z.number().nonnegative().optional(),
+  lengthCm: z.number().nonnegative().optional(),
+  itemsPerBox: z.number().int().positive().optional(),
 });
 export type CreateProductInput = z.infer<typeof createProductSchema>;
+
+// Edição: todos os campos opcionais (patch parcial) + active.
+export const updateProductSchema = createProductSchema.partial().extend({ active: z.boolean().optional() });
+export type UpdateProductInput = z.infer<typeof updateProductSchema>;
+
+export const createProductVariationSchema = z.object({
+  name: z.string().min(1).max(200),
+  sku: z.string().max(80).optional(),
+  price: money.optional(),
+  attributes: z.record(z.string()).optional(), // ex.: { sabor: "baunilha" }
+  active: z.boolean().optional(),
+});
+export type CreateProductVariationInput = z.infer<typeof createProductVariationSchema>;
+
+export const createProductImageSchema = z.object({
+  storageKey: z.string().min(1).max(300),
+  alt: z.string().max(200).optional(),
+  position: z.number().int().min(0).optional(),
+  isPrimary: z.boolean().optional(),
+});
+export type CreateProductImageInput = z.infer<typeof createProductImageSchema>;
+
+export const upsertStoreInventorySchema = z.object({
+  storeId: uuid,
+  productId: uuid,
+  variationId: uuid.nullable().optional(),
+  quantity: z.number().int().min(0),
+  priceOverride: money.optional(),
+  available: z.boolean().optional(),
+});
+export type UpsertStoreInventoryInput = z.infer<typeof upsertStoreInventorySchema>;
+
+// --- Catálogo: marca, categoria, tipo de vídeo ---
+export const createBrandSchema = z.object({
+  name: z.string().min(1).max(160),
+  logoKey: z.string().max(300).optional(), // objeto no MinIO (upload via presign)
+});
+export type CreateBrandInput = z.infer<typeof createBrandSchema>;
+export const updateBrandSchema = createBrandSchema.partial().extend({ active: z.boolean().optional() });
+export type UpdateBrandInput = z.infer<typeof updateBrandSchema>;
+
+export const createCategorySchema = z.object({
+  name: z.string().min(1).max(160),
+  slug,
+  parentId: uuid.nullable().optional(),
+});
+export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
+export const updateCategorySchema = createCategorySchema.partial().extend({ active: z.boolean().optional() });
+export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
+
+// Presign de upload de imagem (logo de marca, imagem de produto).
+export const mediaUploadUrlSchema = z.object({
+  kind: z.enum(['brand-logo', 'product-image']),
+  contentType: z.string().regex(/^image\//, 'apenas imagens'),
+});
+export type MediaUploadUrlInput = z.infer<typeof mediaUploadUrlSchema>;
+
+// Passo do esqueleto de roteiro de um tipo de vídeo (editor de passos).
+const scriptStepSchema = z.object({
+  step: z.number().int().positive(),
+  action: z.string().min(1).max(400),
+  speech: z.string().max(1000).optional(),
+});
+
+export const createVideoTypeSchema = z.object({
+  name: z.string().min(1).max(160),
+  slug,
+  icon: z.string().max(60).optional(),
+  description: z.string().max(1000).optional(),
+  promptTemplate: z.string().max(8000).optional(),
+  defaultDurationSeconds: z.number().int().positive().max(600).optional(),
+  scriptSkeleton: z.array(scriptStepSchema).max(30).optional(),
+});
+export type CreateVideoTypeInput = z.infer<typeof createVideoTypeSchema>;
+export const updateVideoTypeSchema = createVideoTypeSchema.partial().extend({ active: z.boolean().optional() });
+export type UpdateVideoTypeInput = z.infer<typeof updateVideoTypeSchema>;
 
 export const generateIdeasSchema = z.object({
   videoTypeId: uuid,
@@ -88,6 +309,28 @@ export const generateIdeasSchema = z.object({
   regenerate: z.boolean().default(false),
 });
 export type GenerateIdeasInput = z.infer<typeof generateIdeasSchema>;
+
+// Ideia manual (source='manual'): mesmos campos que a IA gera.
+export const createIdeaSchema = z.object({
+  videoTypeId: uuid.nullable().optional(),
+  hook: z.string().min(3).max(300),
+  script: z
+    .array(
+      z.object({
+        step: z.number().int().positive(),
+        instruction: z.string().min(1),
+        durationSeconds: z.number().int().positive().max(120).optional(),
+      }),
+    )
+    .min(1)
+    .max(20),
+  caption: z.string().max(2200).optional(),
+  hashtags: z.array(z.string().max(60)).max(30).optional(),
+  targetDurationSeconds: z.number().int().positive().max(180).optional(),
+});
+export type CreateIdeaInput = z.infer<typeof createIdeaSchema>;
+export const updateIdeaSchema = createIdeaSchema.partial().extend({ archived: z.boolean().optional() });
+export type UpdateIdeaInput = z.infer<typeof updateIdeaSchema>;
 
 // Início de upload de vídeo: a API cria o registro + presigned multipart.
 export const startVideoUploadSchema = z.object({
@@ -113,10 +356,12 @@ export const rejectVideoSchema = z.object({
 
 export const createCommissionRuleSchema = z
   .object({
+    name: z.string().min(2).max(160).optional(),
     storeId: uuid.nullable().optional(),
     productId: uuid.nullable().optional(),
     categoryId: uuid.nullable().optional(),
     platform: z.enum(PUBLICATION_PLATFORMS).nullable().optional(),
+    calcBase: z.enum(COMMISSION_BASES).optional(), // default 'affiliate_payout' no banco/endpoint
     creatorPct: pct,
     storePct: pct,
     platformPct: pct,
@@ -138,13 +383,52 @@ export const affiliateSaleRowSchema = z.object({
 export type AffiliateSaleRow = z.infer<typeof affiliateSaleRowSchema>;
 
 export const createGoalSchema = z.object({
+  name: z.string().min(2).max(160),
   storeId: uuid.nullable().optional(),
   userId: uuid.nullable().optional(),
   period: z.enum(GOAL_PERIODS).default('daily'),
-  targetVideos: z.number().int().min(1).max(1000),
-  targetSalesAmount: money.optional(),
+  metric: z.enum(GOAL_METRICS),
+  targetValue: z.number().positive(),
 });
 export type CreateGoalInput = z.infer<typeof createGoalSchema>;
+
+// --- CRM: cliente e venda da loja física ---
+export const createCustomerSchema = z.object({
+  name: z.string().min(2).max(200),
+  document: z.string().max(20).optional(), // CPF ou CNPJ
+  email: z.string().email().optional(),
+  phone: z.string().max(20).optional(),
+  whatsapp: z.string().max(20).optional(),
+  birthdate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  gender: z.string().max(20).optional(),
+  address: addressSchema.optional(),
+  origin: z.string().max(40).optional(),
+  tags: z.array(z.string().max(60)).max(50).optional(),
+  lgpdConsent: z.boolean().optional(),
+  notes: z.string().max(2000).optional(),
+  storeId: uuid.nullable().optional(),
+});
+export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
+export const updateCustomerSchema = createCustomerSchema.partial();
+export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
+
+export const createStoreSaleSchema = z.object({
+  storeId: uuid.nullable().optional(),
+  customerId: uuid.nullable().optional(),
+  userId: uuid.nullable().optional(), // atendente da venda
+  totalAmount: money,
+  items: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(240),
+        quantity: z.number().positive(),
+        price: money,
+      }),
+    )
+    .optional(),
+  occurredAt: z.string().datetime().optional(),
+});
+export type CreateStoreSaleInput = z.infer<typeof createStoreSaleSchema>;
 
 // --- Sprint 4: afiliados, vendas e comissão ---
 
@@ -193,7 +477,8 @@ export type PayPayoutInput = z.infer<typeof payPayoutSchema>;
 // Cadastro/edição da própria chave Pix (dado sensível do recebedor).
 export const updatePixSchema = z.object({
   pixKey: z.string().min(1).max(140),
-  pixKeyType: z.enum(['cpf', 'cnpj', 'email', 'phone', 'random']),
+  // 'evp' = chave aleatória. Igual ao CHECK de users.pix_key_type no banco.
+  pixKeyType,
   cpf: z.string().max(14).optional(),
 });
 export type UpdatePixInput = z.infer<typeof updatePixSchema>;

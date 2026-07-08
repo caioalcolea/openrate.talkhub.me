@@ -1,7 +1,9 @@
 # Runbook de deploy — stack `openrate` (Docker Swarm / Portainer)
 
+> **⚠️ Estado atual:** o deploy é automatizado por [`first-up.sh`](first-up.sh) e [`../redeploy.sh`](../redeploy.sh) — prefira-os aos passos manuais abaixo. A autenticação é **própria da API** (scrypt + JWT HS256 com `JWT_SECRET`), **sem gotrue**; o banco é um **Postgres compartilhado comum** (container `supabase_db`), sem features do Supabase. Variáveis: `JWT_SECRET` (não `SUPABASE_JWT_SECRET`), `DB_SUPERUSER_PASSWORD` (não `SUPABASE_DB_POSTGRES_PASSWORD`); `SUPABASE_URL/ANON_KEY/SERVICE_ROLE_KEY` não existem mais. Referência completa: [`../README.md`](../README.md). Passos com gotrue/Supabase Auth abaixo são históricos.
+
 Passo a passo para colocar o OpenRate em produção na rede overlay `talkhub`,
-reaproveitando `supabase_db` (Postgres), `supabase_auth` (gotrue), MinIO,
+reaproveitando o Postgres compartilhado (container `supabase_db`), MinIO,
 Evolution API e Browserless. Todos os comandos são executados no nó manager,
 salvo indicação contrária.
 
@@ -135,22 +137,14 @@ docker run --rm --network talkhub -v "$PWD/db:/db" ghcr.io/amacneil/dbmate:2 \
   --migrations-table openrate.schema_migrations up
 ```
 
-3.3.1. Aplicar `0002` e `0003` **como `openrate_owner` conectando direto** (sem
-`SET ROLE`, que o supautils bloqueia). A `0002` cria uma policy só-para-o-owner em
-`affiliate_links` (a função `SECURITY DEFINER` roda como o owner) e a `0003`
-suspende o FORCE só durante o seed de `video_types` globais (org NULL) e o
-restaura. **O caminho dbmate acima NÃO serve p/ estas duas**:
+> **Migration única:** desde a consolidação (squash), TODO o schema — resolver de
+> link de afiliado (policy só-do-owner + função `SECURITY DEFINER`), auth própria,
+> seed de `video_types` globais (suspende o FORCE só durante o seed org-NULL) e a
+> estrutura completa — está em `db/migrations/0001_init.sql`. Não há mais 0002..0007;
+> basta aplicar a `0001` como `openrate_owner`.
 
-```bash
-for m in 0002_affiliate_link_resolver 0003_seed_video_types; do
-  sed '/^-- migrate:down/,$d' "db/migrations/$m.sql" \
-    | docker exec -e PGPASSWORD='TROQUE_SENHA_OWNER' -i "$CID" \
-        psql -h 127.0.0.1 -U openrate_owner -d postgres -v ON_ERROR_STOP=1 --single-transaction -f -
-done
-```
-
-> Atalho: `deploy/first-up.sh` já faz os passos 2–7 (roles, schema, 0001/0002/0003
-> como owner, bucket, build, deploy) de forma idempotente.
+> Atalho: `deploy/first-up.sh` já faz os passos 2–7 (roles, schema, migration única
+> `0001_init.sql` como owner, bucket, build, deploy) de forma idempotente.
 
 3.4. Smoke test da role (deve conectar e enxergar o schema `openrate`):
 
@@ -379,9 +373,10 @@ docker run --rm --network talkhub -v "$PWD/db:/db" ghcr.io/amacneil/dbmate:2 \
   --migrations-table openrate.schema_migrations down
 ```
 
-O `down` de `0001_init.sql` é `DROP SCHEMA openrate CASCADE` (recria do zero) —
-reverter a migration inicial apaga TODOS os dados do OpenRate. Regra: só rode
-`down` se a migration tiver bloco `-- migrate:down` testado. Migrations
+O `down` de `0001_init.sql` **dropa todos os objetos** do schema `openrate` (em
+ordem reversa de dependência), preservando o schema em si (que é externo, criado
+pelo `postgres`) — reverter a migration inicial apaga TODOS os dados do OpenRate.
+Regra: só rode `down` se o bloco `-- migrate:down` estiver testado. Migrations
 destrutivas (DROP) devem ser precedidas de dump do schema:
 
 ```bash

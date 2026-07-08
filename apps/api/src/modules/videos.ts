@@ -1,11 +1,14 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   Module,
+  NotFoundException,
   Param,
   Post,
+  Query,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
@@ -21,8 +24,10 @@ import { PgService } from '../common/pg.service';
 import { S3Service } from '../common/s3';
 import { CurrentTenant } from '../common/tenant';
 import { ZodValidationPipe } from '../common/zod.pipe';
+import { notifyUser } from '../common/notify';
 import { QueuesService } from '../queues.service';
 import { Roles } from '../auth/roles.decorator';
+import { roleAtLeast } from '@openrate/shared';
 
 @Controller('videos')
 class VideosController {
@@ -44,14 +49,22 @@ class VideosController {
     const ext = dto.contentType.includes('webm') ? 'webm' : 'mp4';
     const key = rawVideoKey(t.orgId, t.storeId, videoId, ext);
 
-    await this.pg.withTenant(t, (c) =>
-      c.query(
+    await this.pg.withTenant(t, async (c) => {
+      // Gate de cessão de imagem: sem a cessão assinada, o atendente não grava.
+      const rel = await c.query<{ image_release_status: string }>(
+        'SELECT image_release_status FROM openrate.users WHERE id = $1',
+        [t.userId],
+      );
+      if (rel.rows[0]?.image_release_status !== 'signed') {
+        throw new ForbiddenException('Assine a cessão de direito de imagem antes de gravar.');
+      }
+      await c.query(
         `INSERT INTO openrate.videos
            (id, organization_id, store_id, user_id, product_id, video_idea_id, status, raw_key, size_bytes)
          VALUES ($1,$2,$3,$4,$5,$6,'recording',$7,$8)`,
         [videoId, t.orgId, t.storeId, t.userId, dto.productId, dto.videoIdeaId, key, dto.fileSize],
-      ),
-    );
+      );
+    });
 
     const uploadId = await this.s3.createMultipart(key, dto.contentType);
     const parts = await this.s3.presignParts(key, uploadId, dto.partCount);
@@ -94,11 +107,16 @@ class VideosController {
 
   @Get()
   list(@CurrentTenant() t: TenantContext) {
+    // Atendente vê SÓ os próprios vídeos; manager+ veem os da org (RLS já isola a org).
+    const ownOnly = !roleAtLeast(t.role, 'manager');
     return this.pg.withTenant(t, (c) =>
       c
         .query(
           `SELECT id, product_id, status, duration_seconds, thumb_key, created_at, approved_at
-             FROM openrate.videos ORDER BY created_at DESC LIMIT 200`,
+             FROM openrate.videos
+            WHERE (NOT $2::boolean OR user_id = $1)
+            ORDER BY created_at DESC LIMIT 200`,
+          [t.userId, ownOnly],
         )
         .then((r) => r.rows),
     );
@@ -110,41 +128,105 @@ class VideosController {
       c.query('SELECT * FROM openrate.videos WHERE id = $1', [id]).then((r) => r.rows[0] ?? null),
     );
     if (!video) return null;
+    // Atendente só acessa o próprio vídeo (evita presigned URL de vídeo alheio).
+    if (!roleAtLeast(t.role, 'manager') && video.user_id !== t.userId) {
+      throw new NotFoundException('vídeo não encontrado');
+    }
     const finalUrl = video.final_key ? await this.s3.presignGet(video.final_key) : null;
     const thumbUrl = video.thumb_key ? await this.s3.presignGet(video.thumb_key) : null;
     return { ...video, finalUrl, thumbUrl };
   }
 
-  @Post(':id/approve')
-  @Roles('manager')
-  approve(@CurrentTenant() t: TenantContext, @Param('id') id: string) {
-    return this.pg.withTenant(t, (c) =>
+  // Download forçado (Content-Disposition attachment). kind=final (default) |
+  // thumb. Cai no raw_key se o vídeo final ainda não existir.
+  @Get(':id/download')
+  async download(
+    @CurrentTenant() t: TenantContext,
+    @Param('id') id: string,
+    @Query('kind') kind?: string,
+  ): Promise<{ url: string }> {
+    const v = await this.pg.withTenant(t, (c) =>
       c
-        .query(
-          `UPDATE openrate.videos SET status = 'approved', approved_at = now(), approved_by = $2
-             WHERE id = $1 AND status = 'ready' RETURNING id, status`,
-          [id, t.userId],
-        )
+        .query('SELECT final_key, thumb_key, raw_key, user_id FROM openrate.videos WHERE id = $1', [id])
         .then((r) => r.rows[0] ?? null),
     );
+    if (!v) throw new NotFoundException('vídeo não encontrado');
+    // Atendente só baixa o próprio vídeo.
+    if (!roleAtLeast(t.role, 'manager') && v.user_id !== t.userId) {
+      throw new NotFoundException('vídeo não encontrado');
+    }
+    const which = kind === 'thumb' ? 'thumb' : 'final';
+    const key: string | null = which === 'thumb' ? v.thumb_key : (v.final_key ?? v.raw_key);
+    if (!key) throw new NotFoundException('arquivo não disponível');
+    const ext = which === 'thumb' ? 'jpg' : key.endsWith('.webm') ? 'webm' : 'mp4';
+    const url = await this.s3.presignGet(key, 900, `video-${id}.${ext}`);
+    return { url };
+  }
+
+  @Post(':id/approve')
+  @Roles('manager')
+  async approve(@CurrentTenant() t: TenantContext, @Param('id') id: string) {
+    const info = await this.pg.withTenant(t, async (c) => {
+      const r = await c.query<{ user_id: string }>(
+        `UPDATE openrate.videos SET status = 'approved', approved_at = now(), approved_by = $2
+           WHERE id = $1 AND status = 'ready' RETURNING user_id`,
+        [id, t.userId],
+      );
+      if ((r.rowCount ?? 0) === 0) return null;
+      const creator = r.rows[0].user_id;
+      // Meta do dia batida? (idempotente por dia — não repete a notificação)
+      const met = await c.query('SELECT 1 FROM openrate.v_goal_progress_daily WHERE user_id = $1 AND goal_met LIMIT 1', [creator]);
+      let goalReached = false;
+      if ((met.rowCount ?? 0) > 0) {
+        const dup = await c.query(
+          `SELECT 1 FROM openrate.notifications
+            WHERE user_id = $1 AND template = 'goal_reached'
+              AND created_at::date = (now() AT TIME ZONE 'America/Sao_Paulo')::date LIMIT 1`,
+          [creator],
+        );
+        goalReached = (dup.rowCount ?? 0) === 0;
+      }
+      return { creator, goalReached };
+    });
+    if (!info) return null;
+    await notifyUser(this.pg, this.queues, t, {
+      userId: info.creator,
+      template: 'video_approved',
+      body: 'Boa! Seu vídeo foi aprovado e já pode ser publicado.',
+    });
+    if (info.goalReached) {
+      await notifyUser(this.pg, this.queues, t, {
+        userId: info.creator,
+        template: 'goal_reached',
+        body: 'Meta do dia batida! 🎯 Parabéns.',
+      });
+    }
+    return { id, status: 'approved' };
   }
 
   @Post(':id/reject')
   @Roles('manager')
-  reject(
+  async reject(
     @CurrentTenant() t: TenantContext,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(rejectVideoSchema)) dto: { reason: string },
   ) {
-    return this.pg.withTenant(t, (c) =>
-      c
-        .query(
-          `UPDATE openrate.videos SET status = 'rejected', rejected_reason = $2
-             WHERE id = $1 RETURNING id, status`,
-          [id, dto.reason],
-        )
-        .then((r) => r.rows[0] ?? null),
-    );
+    const creator = await this.pg.withTenant(t, async (c) => {
+      const r = await c.query<{ user_id: string }>(
+        `UPDATE openrate.videos SET status = 'rejected', rejected_reason = $2
+           WHERE id = $1 RETURNING user_id`,
+        [id, dto.reason],
+      );
+      return r.rows[0]?.user_id ?? null;
+    });
+    if (!creator) return null;
+    await notifyUser(this.pg, this.queues, t, {
+      userId: creator,
+      template: 'video_rejected',
+      body: `Seu vídeo foi reprovado. Motivo: ${dto.reason}`,
+      vars: { reason: dto.reason },
+    });
+    return { id, status: 'rejected' };
   }
 }
 
