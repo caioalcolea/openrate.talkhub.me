@@ -140,6 +140,53 @@ export const updateUserSchema = z.object({
 });
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 
+// --- Produto: links de marketplaces/canais externos ---
+// Guardados em products.attributes.marketplaceLinks (jsonb) — sem coluna/migration
+// nova (a coluna attributes já existe). O form monta os campos a partir de MARKETPLACES.
+export const MARKETPLACES = [
+  'mercadoLivre',
+  'amazon',
+  'tiktok',
+  'shopee',
+  'kwai',
+  'temu',
+  'magalu',
+  'brandSite',
+] as const;
+export type Marketplace = (typeof MARKETPLACES)[number];
+
+export const MARKETPLACE_LABELS: Record<Marketplace, string> = {
+  mercadoLivre: 'Mercado Livre',
+  amazon: 'Amazon',
+  tiktok: 'TikTok',
+  shopee: 'Shopee',
+  kwai: 'Kwai',
+  temu: 'Temu',
+  magalu: 'Magalu',
+  brandSite: 'Site da Marca',
+};
+
+// Cada link é http(s) e opcional; string vazia é normalizada para ausência (undefined).
+const marketplaceUrl = z
+  .string()
+  .trim()
+  .max(1000)
+  .refine((u) => u === '' || /^https?:\/\/\S+$/i.test(u), 'use uma URL http(s) válida')
+  .transform((u) => (u === '' ? undefined : u))
+  .optional();
+
+export const marketplaceLinksSchema = z.object({
+  mercadoLivre: marketplaceUrl,
+  amazon: marketplaceUrl,
+  tiktok: marketplaceUrl,
+  shopee: marketplaceUrl,
+  kwai: marketplaceUrl,
+  temu: marketplaceUrl,
+  magalu: marketplaceUrl,
+  brandSite: marketplaceUrl,
+});
+export type MarketplaceLinks = z.infer<typeof marketplaceLinksSchema>;
+
 // --- Produto (formulário em abas) ---
 export const createProductSchema = z.object({
   name: z.string().min(2).max(240),
@@ -168,6 +215,8 @@ export const createProductSchema = z.object({
   seoTitle: z.string().max(160).optional(),
   seoDescription: z.string().max(320).optional(),
   institutionalVideoUrl: z.string().max(500).optional(),
+  // links nos marketplaces/canais (attributes.marketplaceLinks)
+  marketplaceLinks: marketplaceLinksSchema.optional(),
   // logística
   weightGrossKg: z.number().nonnegative().optional(),
   weightNetKg: z.number().nonnegative().optional(),

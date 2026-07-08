@@ -6,6 +6,7 @@ import { api } from '../../../../lib/api';
 interface Product {
   id: string;
   name: string;
+  thumbUrl: string | null;
 }
 interface Idea {
   id: string;
@@ -31,8 +32,20 @@ export default function AppProducts() {
     <div className="flex flex-col gap-3">
       <h1 className="text-xl font-bold">Produtos</h1>
       {products.map((p) => (
-        <button key={p.id} className="card text-left" onClick={() => openProduct(p.id)}>
-          {p.name}
+        <button
+          key={p.id}
+          className="card flex items-center gap-3 text-left"
+          onClick={() => openProduct(p.id)}
+        >
+          {p.thumbUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={p.thumbUrl} alt="" className="h-14 w-14 shrink-0 rounded-lg object-cover" />
+          ) : (
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-xl">
+              📦
+            </div>
+          )}
+          <span className="min-w-0 flex-1 truncate font-medium">{p.name}</span>
         </button>
       ))}
       {selected && (

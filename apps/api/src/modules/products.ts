@@ -32,6 +32,16 @@ import { assertOrgContext, CurrentTenant } from '../common/tenant';
 import { ZodValidationPipe } from '../common/zod.pipe';
 import { Roles } from '../auth/roles.decorator';
 
+// Normaliza os links de marketplace: descarta vazios/ausentes; undefined se sobrar nenhum.
+function cleanMarketplaceLinks(
+  links?: Record<string, string | undefined>,
+): Record<string, string> | undefined {
+  if (!links) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(links)) if (typeof v === 'string' && v.trim()) out[k] = v.trim();
+  return Object.keys(out).length ? out : undefined;
+}
+
 @Controller('products')
 class ProductsController {
   constructor(
@@ -67,7 +77,7 @@ class ProductsController {
                     WHERE pi.product_id = p.id ORDER BY is_primary DESC, position LIMIT 1) AS thumb_key
              FROM openrate.products p
             WHERE ($1::uuid IS NULL OR store_id = $1)
-              AND ($2::text IS NULL OR scope = $2)
+              AND ($2::text IS NULL OR scope::text = $2)
               AND ($3::uuid IS NULL OR brand_id = $3)
               AND ($4::uuid IS NULL OR category_id = $4)
               AND ($5::text IS NULL OR name ILIKE '%' || $5 || '%' OR sku ILIKE '%' || $5 || '%')
@@ -149,6 +159,8 @@ class ProductsController {
     }
     const orgId = dto.scope === 'platform' ? null : t.orgId;
     const storeId = dto.scope === 'store' ? dto.storeId ?? null : null;
+    const marketplaceLinks = cleanMarketplaceLinks(dto.marketplaceLinks);
+    const attributes = marketplaceLinks ? { marketplaceLinks } : {};
     return this.pg.withTenant(t, (c) =>
       c
         .query(
@@ -156,8 +168,8 @@ class ProductsController {
              (organization_id, store_id, scope, origin, name, model, product_type, unit, sku, gtin,
               ncm, cest, fiscal_origin, price, promo_price, cost_price, short_description, description,
               tags, seo_title, seo_description, institutional_video_url, weight_gross_kg, weight_net_kg,
-              height_cm, width_cm, length_cm, items_per_box, brand_id, category_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
+              height_cm, width_cm, length_cm, items_per_box, brand_id, category_id, attributes)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31::jsonb)
            RETURNING *`,
           [
             orgId,
@@ -190,6 +202,7 @@ class ProductsController {
             dto.itemsPerBox ?? null,
             dto.brandId ?? null,
             dto.categoryId ?? null,
+            JSON.stringify(attributes),
           ],
         )
         .then((r) => r.rows[0]),
@@ -221,6 +234,8 @@ class ProductsController {
              height_cm = COALESCE($22, height_cm), width_cm = COALESCE($23, width_cm), length_cm = COALESCE($24, length_cm),
              items_per_box = COALESCE($25, items_per_box),
              brand_id = COALESCE($26, brand_id), category_id = COALESCE($27, category_id),
+             attributes = CASE WHEN $29::jsonb IS NULL THEN attributes
+                               ELSE attributes || jsonb_build_object('marketplaceLinks', $29::jsonb) END,
              active = COALESCE($28, active)
            WHERE id = $1 RETURNING *`,
           [
@@ -252,6 +267,9 @@ class ProductsController {
             dto.brandId ?? null,
             dto.categoryId ?? null,
             dto.active ?? null,
+            dto.marketplaceLinks !== undefined
+              ? JSON.stringify(cleanMarketplaceLinks(dto.marketplaceLinks) ?? {})
+              : null,
           ],
         )
         .then((r) => r.rows[0] ?? null),

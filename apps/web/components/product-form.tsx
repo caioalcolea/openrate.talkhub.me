@@ -7,6 +7,9 @@ import { useToast } from './toast';
 import {
   PRODUCT_TYPES,
   PRODUCT_UNITS,
+  MARKETPLACES,
+  MARKETPLACE_LABELS,
+  type Marketplace,
   type ProductScope,
   type ProductType,
   type ProductUnit,
@@ -47,7 +50,10 @@ const EMPTY = {
 const num = (s: string): number | undefined => (s.trim() === '' ? undefined : Number(s));
 const str = (s: string): string | undefined => (s.trim() === '' ? undefined : s.trim());
 
-const TABS_BASE = ['Identificação', 'Fiscal', 'Preços', 'Descrição', 'Logística'] as const;
+const emptyLinks = (): Record<Marketplace, string> =>
+  Object.fromEntries(MARKETPLACES.map((m) => [m, ''])) as Record<Marketplace, string>;
+
+const TABS_BASE = ['Identificação', 'MarketPlaces', 'Fiscal', 'Preços', 'Descrição', 'Logística'] as const;
 const TABS_EDIT = ['Mídia', 'Variações', 'Estoque'] as const;
 
 async function uploadImage(file: File): Promise<string> {
@@ -68,6 +74,12 @@ export function ProductForm({ mode, productId }: { mode: 'new' | 'edit'; product
 
   const [tab, setTab] = useState<string>('Identificação');
   const [f, setF] = useState({ ...EMPTY });
+  const [links, setLinks] = useState<Record<Marketplace, string>>(emptyLinks());
+  // Capa: no modo "novo" o produto ainda não existe, então guardamos a key no MinIO
+  // e criamos a imagem primária logo após o INSERT. No modo "editar" enviamos direto.
+  const [coverKey, setCoverKey] = useState('');
+  const [coverPreview, setCoverPreview] = useState('');
+  const [coverBusy, setCoverBusy] = useState(false);
   const [brands, setBrands] = useState<Ref[]>([]);
   const [cats, setCats] = useState<Ref[]>([]);
   const [stores, setStores] = useState<Ref[]>([]);
@@ -78,6 +90,8 @@ export function ProductForm({ mode, productId }: { mode: 'new' | 'edit'; product
 
   const set = (k: keyof typeof EMPTY) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setF((s) => ({ ...s, [k]: e.target.value }));
+  const setLink = (m: Marketplace) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setLinks((s) => ({ ...s, [m]: e.target.value }));
   const errToast = (e: unknown) => toast.error(e instanceof ApiError ? e.message : String(e));
 
   useEffect(() => {
@@ -123,9 +137,14 @@ export function ProductForm({ mode, productId }: { mode: 'new' | 'edit'; product
         heightCm: p.height_cm != null ? String(p.height_cm) : '', widthCm: p.width_cm != null ? String(p.width_cm) : '',
         lengthCm: p.length_cm != null ? String(p.length_cm) : '', itemsPerBox: p.items_per_box != null ? String(p.items_per_box) : '',
       });
+      const attrs = (d.product as { attributes?: { marketplaceLinks?: Record<string, string> } }).attributes ?? {};
+      const ml = attrs.marketplaceLinks ?? {};
+      setLinks({ ...emptyLinks(), ...Object.fromEntries(MARKETPLACES.map((m) => [m, ml[m] ?? ''])) } as Record<Marketplace, string>);
       setImages(d.images);
       setVariations(d.variations);
       setInventory(d.inventory);
+      const primary = d.images.find((im) => im.is_primary) ?? d.images[0];
+      setCoverPreview(primary?.url ?? '');
     } catch (e) {
       errToast(e);
     }
@@ -133,8 +152,12 @@ export function ProductForm({ mode, productId }: { mode: 'new' | 'edit'; product
 
   function buildBody() {
     const tags = f.tags.split(',').map((s) => s.trim()).filter(Boolean);
+    // Sempre enviamos o objeto (mesmo vazio) para permitir LIMPAR links na edição.
+    const marketplaceLinks = Object.fromEntries(
+      MARKETPLACES.filter((m) => links[m].trim()).map((m) => [m, links[m].trim()]),
+    );
     return {
-      name: f.name, scope: f.scope, origin: 'manual',
+      name: f.name, scope: f.scope, origin: 'manual', marketplaceLinks,
       model: str(f.model), productType: f.productType,
       storeId: f.scope === 'store' ? str(f.storeId) : undefined,
       brandId: str(f.brandId), categoryId: str(f.categoryId),
@@ -159,7 +182,14 @@ export function ProductForm({ mode, productId }: { mode: 'new' | 'edit'; product
     try {
       if (mode === 'new') {
         const p = await api<{ id: string }>('/v1/products', { method: 'POST', body: buildBody() });
-        toast.success('Produto criado. Agora adicione imagens, variações e estoque.');
+        // Capa escolhida no cadastro: já sobe como imagem principal do produto novo.
+        if (coverKey) {
+          await api(`/v1/products/${p.id}/images`, {
+            method: 'POST',
+            body: { storageKey: coverKey, isPrimary: true },
+          }).catch(errToast);
+        }
+        toast.success(coverKey ? 'Produto criado com capa.' : 'Produto criado. Agora adicione imagens, variações e estoque.');
         router.push(`/products/${p.id}/edit`);
       } else {
         await api(`/v1/products/${productId}`, { method: 'PATCH', body: buildBody() });
@@ -169,6 +199,34 @@ export function ProductForm({ mode, productId }: { mode: 'new' | 'edit'; product
       errToast(e);
     } finally {
       setBusy(false);
+    }
+  }
+
+  // --- capa (foto principal exibida ao creator no catálogo) ---
+  async function onCoverFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setCoverBusy(true);
+    try {
+      const key = await uploadImage(file);
+      if (mode === 'new') {
+        // produto ainda não existe — guarda a key e mostra o preview local.
+        setCoverKey(key);
+        setCoverPreview(URL.createObjectURL(file));
+      } else if (productId) {
+        // editar: define direto como imagem principal (capa) e recarrega.
+        await api(`/v1/products/${productId}/images`, {
+          method: 'POST',
+          body: { storageKey: key, isPrimary: true },
+        });
+        await loadProduct();
+        toast.success('Capa atualizada.');
+      }
+    } catch (err) {
+      errToast(err);
+    } finally {
+      setCoverBusy(false);
     }
   }
 
@@ -270,7 +328,23 @@ export function ProductForm({ mode, productId }: { mode: 'new' | 'edit'; product
 
       <form onSubmit={save} className="card space-y-3">
         {tab === 'Identificação' && (
-          <div className="flex flex-wrap gap-3">
+          <div className="space-y-4">
+            <div className="flex items-center gap-4">
+              {coverPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={coverPreview} alt="capa" className="h-24 w-24 rounded-lg border object-cover" />
+              ) : (
+                <div className="flex h-24 w-24 items-center justify-center rounded-lg border border-dashed border-neutral-300 text-2xl text-neutral-400">📷</div>
+              )}
+              <div className="min-w-[14rem] flex-1 space-y-1">
+                <label className="label">Foto de capa (catálogo do creator)</label>
+                <input type="file" accept="image/*" onChange={onCoverFile} className="input" disabled={coverBusy} />
+                <p className="text-xs text-neutral-500">
+                  {coverBusy ? 'Enviando…' : 'Imagem principal exibida ao criador no catálogo. Pode trocar depois na aba Mídia.'}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3">
             <div className="flex-1 min-w-[14rem]">
               <label className="label">Nome</label>
               <input className="input" value={f.name} onChange={set('name')} required />
@@ -340,6 +414,30 @@ export function ProductForm({ mode, productId }: { mode: 'new' | 'edit'; product
             <div className="min-w-[9rem]">
               <label className="label">Modelo</label>
               <input className="input" value={f.model} onChange={set('model')} />
+            </div>
+            </div>
+          </div>
+        )}
+
+        {tab === 'MarketPlaces' && (
+          <div className="space-y-3">
+            <p className="text-sm text-neutral-500">
+              Links do produto em cada canal de venda. Deixe em branco os que não usar (aceita apenas URLs http/https).
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {MARKETPLACES.map((m) => (
+                <div key={m}>
+                  <label className="label">{MARKETPLACE_LABELS[m]}</label>
+                  <input
+                    className="input"
+                    type="url"
+                    inputMode="url"
+                    placeholder="https://…"
+                    value={links[m]}
+                    onChange={setLink(m)}
+                  />
+                </div>
+              ))}
             </div>
           </div>
         )}
